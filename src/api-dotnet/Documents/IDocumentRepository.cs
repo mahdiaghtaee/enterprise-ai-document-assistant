@@ -4,5 +4,5 @@ public interface IDocumentRepository
 {
     IReadOnlyCollection<DocumentRecord> GetAll();
 
-    DocumentRecord Add(string fileName, string? contentType);
+    DocumentRecord Add(string fileName, string? contentType, long sizeInBytes, string storagePath);
 }
