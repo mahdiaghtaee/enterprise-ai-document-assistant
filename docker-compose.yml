@@ -1,0 +1,42 @@
+services:
+  document-api:
+    build:
+      context: .
+      dockerfile: src/api-dotnet/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=documents;Username=documents;Password=documents
+      Redis__ConnectionString: redis:6379
+      AiService__BaseUrl: http://ai-service:8000
+    depends_on:
+      - postgres
+      - redis
+      - ai-service
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: src/ai-service-python/Dockerfile
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: documents
+      POSTGRES_USER: documents
+      POSTGRES_PASSWORD: documents
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres-data:
