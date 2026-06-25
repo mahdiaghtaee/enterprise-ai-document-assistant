@@ -13,12 +13,14 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
         }
     }
 
-    public DocumentRecord Add(string fileName, string? contentType)
+    public DocumentRecord Add(string fileName, string? contentType, long sizeInBytes, string storagePath)
     {
         var document = new DocumentRecord(
             Guid.NewGuid(),
             fileName.Trim(),
             string.IsNullOrWhiteSpace(contentType) ? null : contentType.Trim(),
+            sizeInBytes,
+            storagePath,
             "uploaded",
             DateTimeOffset.UtcNow);
 
