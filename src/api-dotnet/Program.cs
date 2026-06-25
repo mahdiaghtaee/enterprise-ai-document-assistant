@@ -1,3 +1,4 @@
+using EnterpriseDocumentAssistant.Api.Ai;
 using EnterpriseDocumentAssistant.Api.Documents;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -5,6 +6,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IDocumentRepository, InMemoryDocumentRepository>();
+builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
+
+builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
+{
+    var baseUrl = builder.Configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
+    client.BaseAddress = new Uri(baseUrl);
+});
 
 var app = builder.Build();
 
@@ -33,8 +41,42 @@ app.MapPost("/api/documents", (CreateDocumentRequest request, IDocumentRepositor
         return Results.BadRequest(new { message = "File name is required." });
     }
 
-    var document = repository.Add(request.FileName, request.ContentType);
+    var document = repository.Add(request.FileName, request.ContentType, 0, "metadata-only");
     return Results.Created($"/api/documents/{document.Id}", document);
 });
+
+app.MapPost("/api/documents/upload", async (
+    IFormFile file,
+    IDocumentStorage storage,
+    IDocumentRepository repository,
+    IAiIndexingClient aiClient,
+    CancellationToken cancellationToken) =>
+{
+    if (file.Length == 0)
+    {
+        return Results.BadRequest(new { message = "Uploaded file is empty." });
+    }
+
+    var storedDocument = await storage.SaveAsync(file, cancellationToken);
+    var document = repository.Add(
+        storedDocument.OriginalFileName,
+        storedDocument.ContentType,
+        storedDocument.SizeInBytes,
+        storedDocument.StoragePath);
+
+    var indexingStatus = await aiClient.QueueIndexingAsync(
+        storedDocument.OriginalFileName,
+        storedDocument.ContentType,
+        cancellationToken);
+
+    var response = new UploadDocumentResponse(
+        document.Id,
+        document.FileName,
+        document.Status,
+        indexingStatus);
+
+    return Results.Created($"/api/documents/{document.Id}", response);
+})
+.DisableAntiforgery();
 
 app.Run();
