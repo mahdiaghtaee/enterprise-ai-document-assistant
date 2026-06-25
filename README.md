@@ -1,18 +1,20 @@
 # Enterprise AI Document Assistant
 
-A small but realistic starter project for building an internal document assistant. The goal is to let a user upload company documents, index their content, and ask questions with answers grounded in the uploaded files.
+A small but realistic starter project for building an internal document assistant. The goal is to let a user register company documents, send them to a separate AI service, and later ask questions with answers grounded in those documents.
 
-This repository is intentionally kept simple at the first step. The structure is ready for a production-style system, but the implementation starts with a clean API, a separate AI service, and Docker-based local development.
+The first version is intentionally modest. It focuses on a clean structure, separate services, and a local Docker setup before adding heavier features like authentication, file parsing, embeddings, and RAG.
 
-## What this project will include
+## Current version
 
-- ASP.NET Core API for the main backend
-- Python FastAPI service for document processing and AI calls
-- PostgreSQL for application data
-- Redis for background processing and caching
-- Docker Compose for local development
-- A worker service for document indexing tasks
-- Tests and CI in later iterations
+Version 1 includes:
+
+- ASP.NET Core 8 API
+- Python FastAPI AI service
+- PostgreSQL container for future persistence
+- Redis container for future background jobs and caching
+- Docker Compose local stack
+- A small in-memory document repository
+- Health endpoints for both services
 
 ## Architecture
 
@@ -21,14 +23,11 @@ Client
   |
   v
 ASP.NET Core API
-  |---- PostgreSQL
-  |---- Redis
+  |---- PostgreSQL     planned persistence
+  |---- Redis          planned queue/cache
   |
   v
-Python AI Service
-  |
-  v
-Document parsing / embeddings / question answering
+Python AI Service     planned parsing, chunking and embeddings
 ```
 
 ## Repository layout
@@ -37,46 +36,67 @@ Document parsing / embeddings / question answering
 src/
   api-dotnet/          Main ASP.NET Core API
   ai-service-python/   FastAPI AI/document service
-  worker-dotnet/       Background worker skeleton
-tests/
-  api-tests/           API test project placeholder
-deploy/
-  docker/              Deployment-related files
+  worker-dotnet/       Background worker notes for the next version
 ```
 
-## Local development
+## Run locally
 
 Requirements:
 
 - Docker
-- .NET 8 SDK
-- Python 3.11+
+- .NET 8 SDK if running the API outside Docker
+- Python 3.11+ if running the AI service outside Docker
 
-Run the local stack:
+Start everything:
 
 ```bash
 docker compose up --build
 ```
 
-API endpoints after startup:
+Open these URLs:
 
 ```text
-ASP.NET Core API: http://localhost:5000
-AI Service:       http://localhost:8000
-PostgreSQL:       localhost:5432
-Redis:            localhost:6379
+ASP.NET Core API: http://localhost:5000/health
+Swagger UI:       http://localhost:5000/swagger
+AI Service:       http://localhost:8000/health
+AI Service docs:  http://localhost:8000/docs
 ```
 
-## Current status
+## Try the API
 
-Initial scaffold. The next step is implementing document upload in the .NET API and forwarding extracted content to the Python service.
+Create a document record:
 
-## Planned next steps
+```bash
+curl -X POST http://localhost:5000/api/documents \
+  -H "Content-Type: application/json" \
+  -d '{"fileName":"sample-policy.pdf","contentType":"application/pdf"}'
+```
 
-- Add document upload endpoint
+List documents:
+
+```bash
+curl http://localhost:5000/api/documents
+```
+
+Index a document in the AI service placeholder:
+
+```bash
+curl -X POST http://localhost:8000/index \
+  -H "Content-Type: application/json" \
+  -d '{"file_name":"sample-policy.pdf","content_type":"application/pdf","text":"Initial test document"}'
+```
+
+## Notes
+
+The document repository is currently in-memory. That is deliberate for the first version, because the goal is to make the API shape and service boundaries clear before adding database migrations and persistence.
+
+## Next steps
+
+- Add real file upload to the .NET API
 - Store document metadata in PostgreSQL
-- Add document parsing in Python service
-- Add embedding storage with pgvector
-- Add question-answer endpoint with source references
-- Add authentication
-- Add integration tests
+- Add a background worker for indexing
+- Add document parsing in the Python service
+- Add embeddings with pgvector
+- Add a question-answer endpoint with source references
+- Add JWT authentication
+- Add integration tests and GitHub Actions
