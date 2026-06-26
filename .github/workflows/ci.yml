@@ -11,22 +11,22 @@ on:
       - master
 
 jobs:
-  validate:
-    name: Validate and build
+  build:
+    name: Build and validate
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show repository structure
-        run: |
-          find . -maxdepth 3 -type f | sort
-
       - name: Validate Docker Compose configuration
-        run: |
-          docker compose config
+        run: docker compose config
 
-      - name: Build Docker Compose services
-        run: |
-          docker compose build
+      - name: Build ASP.NET Core API image
+        run: docker build -f src/api-dotnet/Dockerfile -t enterprise-document-api:ci .
+
+      - name: Build Python AI service image
+        run: docker build -f src/ai-service-python/Dockerfile -t enterprise-ai-service:ci .
+
+      - name: Build full Docker Compose stack
+        run: docker compose build
