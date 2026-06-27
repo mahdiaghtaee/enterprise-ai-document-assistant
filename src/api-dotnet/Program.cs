@@ -52,30 +52,15 @@ app.MapPost("/api/documents/upload", async (
     IAiIndexingClient aiClient,
     CancellationToken cancellationToken) =>
 {
-    const long maxUploadSizeBytes = 10 * 1024 * 1024;
-    var allowedContentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "application/pdf",
-        "text/plain",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    };
+    var validationError = DocumentUploadValidator.Validate(file);
 
-    if (file.Length == 0)
-    {
-        return Results.BadRequest(new { message = "Uploaded file is empty." });
-    }
-
-    if (file.Length > maxUploadSizeBytes)
-    {
-        return Results.BadRequest(new { message = "Uploaded file is too large. Maximum allowed size is 10 MB." });
-    }
-
-    if (!allowedContentTypes.Contains(file.ContentType))
+    if (validationError is not null)
     {
         return Results.BadRequest(new
         {
-            message = "Unsupported file type.",
-            allowedContentTypes
+            message = validationError,
+            allowedContentTypes = DocumentUploadValidator.AllowedContentTypes,
+            maxUploadSizeBytes = DocumentUploadValidator.MaxUploadSizeBytes
         });
     }
 
