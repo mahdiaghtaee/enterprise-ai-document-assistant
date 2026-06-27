@@ -12,12 +12,23 @@ on:
 
 jobs:
   build:
-    name: Build and validate
+    name: Build, test, and validate
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore API tests
+        run: dotnet restore tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+
+      - name: Run API tests
+        run: dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj --configuration Release --no-restore
 
       - name: Validate Docker Compose configuration
         run: docker compose config
