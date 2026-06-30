@@ -87,3 +87,7 @@ app.MapPost("/api/documents/upload", async (
 .DisableAntiforgery();
 
 app.Run();
+
+public partial class Program
+{
+}
