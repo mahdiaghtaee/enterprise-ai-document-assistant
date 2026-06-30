@@ -28,14 +28,20 @@ Open the ASP.NET Core API Swagger page in the browser.
 Suggested local URL:
 
 ```text
-http://localhost:8080/swagger
+http://localhost:5000/swagger
 ```
 
-If the application maps Swagger to a different local port or route, update this document after confirming the running configuration.
+The API runs inside the container on port `8080`, but Docker Compose publishes it to the host on port `5000`.
 
 ### 3. Show health endpoint
 
 Purpose: prove the API is running.
+
+Suggested endpoint:
+
+```text
+GET http://localhost:5000/health
+```
 
 Expected message to client:
 
@@ -43,7 +49,17 @@ Expected message to client:
 This endpoint is used by developers and deployment systems to confirm that the backend service is healthy.
 ```
 
-### 4. Show document upload endpoint
+### 4. Show document metadata endpoint
+
+Purpose: explain how the backend tracks documents.
+
+Expected message to client:
+
+```text
+The backend should not only send files to AI. It should track document metadata, processing status, ownership, and future access rules.
+```
+
+### 5. Show document upload endpoint
 
 Purpose: explain the business workflow.
 
@@ -57,16 +73,6 @@ Use the sample document:
 
 ```text
 samples/sample-policy.txt
-```
-
-### 5. Show document listing or metadata endpoint
-
-Purpose: explain persistence and traceability.
-
-Expected message to client:
-
-```text
-The backend should not only send files to AI. It should track document metadata, processing status, ownership, and future access rules.
 ```
 
 ### 6. Show planned search and ask endpoints
@@ -109,6 +115,7 @@ When screenshots are added later, capture:
 
 - Swagger API overview
 - Health endpoint response
+- Document metadata endpoint
 - Document upload endpoint
 - Example upload response
 - Search or ask endpoint once implemented
