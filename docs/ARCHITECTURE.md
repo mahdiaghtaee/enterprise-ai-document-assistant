@@ -1,6 +1,10 @@
 # Architecture Overview
 
-Enterprise AI Document Assistant uses a simple service-oriented structure. The design keeps business workflows in the .NET API and document intelligence concerns in a separate Python service.
+Enterprise AI Document Assistant uses a service-oriented structure. The design keeps business workflows in the .NET API and document intelligence concerns in a separate Python service.
+
+## Architecture Goal
+
+The project is designed as a backend foundation for a private enterprise AI assistant that can process internal documents and answer questions using retrieved document context.
 
 ## High-Level Flow
 
@@ -12,12 +16,17 @@ ASP.NET Core API
     |
     |-- Document upload
     |-- Metadata management
-    |-- Authentication and authorization
     |-- API contracts
+    |-- Future authentication and authorization
     |
     +--> PostgreSQL
+    |       - Document metadata
+    |       - Processing status
+    |       - Future user and workspace data
     |
-    +--> Redis / background queue
+    +--> Redis
+    |       - Cache-ready infrastructure
+    |       - Future background job coordination
     |
     v
 Python AI Service
@@ -55,6 +64,7 @@ Responsible for:
 Responsible for:
 
 - Document text extraction
+- Text cleanup
 - Chunk generation
 - Embedding generation
 - Semantic search
@@ -78,6 +88,63 @@ Planned responsibilities:
 - Indexing queue
 - Caching short-lived AI responses or document states
 
+### Vector Store
+
+The vector store is planned as an abstraction so the project can support different backends later, such as:
+
+- Qdrant
+- PostgreSQL with pgvector
+- Azure AI Search
+- Other enterprise search systems
+
+## Request Flow: Document Upload
+
+```text
+User uploads document
+    |
+    v
+ASP.NET Core API validates request
+    |
+    v
+Metadata is stored in PostgreSQL
+    |
+    v
+Document processing task is prepared
+    |
+    v
+FastAPI service extracts and chunks text
+    |
+    v
+Embeddings are generated
+    |
+    v
+Chunks are indexed for semantic search
+```
+
+## Request Flow: Ask a Question
+
+```text
+User asks a question
+    |
+    v
+ASP.NET Core API receives request
+    |
+    v
+AI service prepares query embedding
+    |
+    v
+Relevant chunks are retrieved
+    |
+    v
+RAG prompt is assembled
+    |
+    v
+Answer is generated with source references
+    |
+    v
+API returns grounded answer to user
+```
+
 ## Design Principles
 
 - Keep the first version small and demonstrable
@@ -85,6 +152,22 @@ Planned responsibilities:
 - Make every milestone useful for a real client conversation
 - Add infrastructure only when the workflow needs it
 - Keep setup simple with Docker Compose
+- Preserve source attribution for generated answers
+
+## Production Considerations
+
+Future production versions should include:
+
+- Authentication
+- Role-based access control
+- Tenant isolation
+- Background workers
+- Observability
+- Structured logging
+- Integration tests
+- CI/CD
+- Secure document storage
+- Source attribution in all generated answers
 
 ## Freelance Use Case
 
@@ -95,3 +178,7 @@ This architecture can be adapted for clients who need:
 - Legal or accounting document analysis
 - Knowledge base automation
 - Private document Q&A tools
+
+## Portfolio Message
+
+This architecture demonstrates more than a chatbot. It shows an enterprise backend approach for AI systems, with service boundaries, infrastructure components, data persistence, future access control, and a clear RAG path.
