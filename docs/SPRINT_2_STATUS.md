@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Sprint 2 has started.
+Sprint 2 is in progress.
 
 ## Completed
 
@@ -10,14 +10,19 @@ Sprint 2 has started.
 - Added ADR 0001 for ASP.NET Core API and Python FastAPI AI service separation
 - Added ADR 0002 for RAG over simple chatbot architecture
 - Added health and observability notes
+- Added GitHub Actions CI workflow foundation
+- Added initial xUnit smoke test foundation
+- Added CI badge and engineering credibility updates to README
+- Aligned local documentation with Docker Compose host port `5000`
+- Aligned API examples with current implemented endpoints and marked search/RAG endpoints as planned
 
 ## Remaining
 
-- Add GitHub Actions workflow
-- Add initial test foundation
+- Confirm CI run after PR creation
 - Add implementation-level health check verification
+- Add more meaningful API tests
 - Add screenshots after local run
-- Add CI badge after workflow is active
+- Add RAG implementation milestone issues
 
 ## Management Note
 
