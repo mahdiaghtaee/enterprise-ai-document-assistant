@@ -1,13 +1,13 @@
 # API Examples
 
-This document describes the intended client-facing API flow for the Enterprise AI Document Assistant.
+This document describes the current and planned client-facing API flow for the Enterprise AI Document Assistant.
 
-The examples are written as portfolio/demo documentation. Endpoint names may be adjusted as implementation evolves.
+The API runs inside the container on port `8080`, and Docker Compose publishes it to the host on port `5000`.
 
 ## Base URL
 
 ```text
-http://localhost:8080
+http://localhost:5000
 ```
 
 ## Health Check
@@ -15,14 +15,40 @@ http://localhost:8080
 Use this endpoint to verify that the backend API is running.
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:5000/health
 ```
 
-Expected response:
+Expected response shape:
 
 ```json
 {
-  "status": "Healthy"
+  "service": "document-api",
+  "status": "ok",
+  "checkedAt": "2026-06-30T00:00:00+00:00"
+}
+```
+
+## Create Document Metadata
+
+Business purpose: register document metadata before or without uploading a physical file.
+
+```bash
+curl -X POST http://localhost:5000/api/documents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fileName": "sample-policy.txt",
+    "contentType": "text/plain"
+  }'
+```
+
+Expected response shape:
+
+```json
+{
+  "id": "generated-document-id",
+  "fileName": "sample-policy.txt",
+  "contentType": "text/plain",
+  "status": "metadata-only"
 }
 ```
 
@@ -31,20 +57,18 @@ Expected response:
 Business purpose: allow a company user to upload a PDF, report, policy, contract, or knowledge-base document.
 
 ```bash
-curl -X POST http://localhost:8080/api/documents \
-  -F "file=@sample-policy.pdf" \
-  -F "title=Internal Policy Document" \
-  -F "department=Operations"
+curl -X POST http://localhost:5000/api/documents/upload \
+  -F "file=@samples/sample-policy.txt;type=text/plain"
 ```
 
 Expected response shape:
 
 ```json
 {
-  "documentId": "doc_12345",
-  "title": "Internal Policy Document",
-  "status": "Uploaded",
-  "message": "Document received and queued for processing."
+  "documentId": "generated-document-id",
+  "fileName": "sample-policy.txt",
+  "status": "uploaded",
+  "indexingStatus": "queued"
 }
 ```
 
@@ -53,7 +77,7 @@ Expected response shape:
 Business purpose: show uploaded documents and their indexing status.
 
 ```bash
-curl http://localhost:8080/api/documents
+curl http://localhost:5000/api/documents
 ```
 
 Expected response shape:
@@ -61,20 +85,20 @@ Expected response shape:
 ```json
 [
   {
-    "documentId": "doc_12345",
-    "title": "Internal Policy Document",
-    "status": "Indexed",
-    "createdAt": "2026-06-30T00:00:00Z"
+    "id": "generated-document-id",
+    "fileName": "sample-policy.txt",
+    "contentType": "text/plain",
+    "status": "uploaded"
   }
 ]
 ```
 
-## Search Documents
+## Planned: Search Documents
 
 Business purpose: retrieve relevant internal knowledge before answering a user question.
 
 ```bash
-curl -X POST http://localhost:8080/api/search \
+curl -X POST http://localhost:5000/api/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What is the approval process for vendor contracts?",
@@ -82,15 +106,15 @@ curl -X POST http://localhost:8080/api/search \
   }'
 ```
 
-Expected response shape:
+Expected future response shape:
 
 ```json
 {
   "query": "What is the approval process for vendor contracts?",
   "results": [
     {
-      "documentId": "doc_12345",
-      "title": "Internal Policy Document",
+      "documentId": "generated-document-id",
+      "title": "sample-policy.txt",
       "score": 0.91,
       "snippet": "Vendor contracts must be reviewed by Operations and Finance before approval."
     }
@@ -98,12 +122,12 @@ Expected response shape:
 }
 ```
 
-## Ask a Question with RAG
+## Planned: Ask a Question with RAG
 
 Business purpose: answer a business question using private company documents and include source attribution.
 
 ```bash
-curl -X POST http://localhost:8080/api/ask \
+curl -X POST http://localhost:5000/api/ask \
   -H "Content-Type: application/json" \
   -d '{
     "question": "Who needs to approve vendor contracts?",
@@ -111,15 +135,15 @@ curl -X POST http://localhost:8080/api/ask \
   }'
 ```
 
-Expected response shape:
+Expected future response shape:
 
 ```json
 {
   "answer": "Vendor contracts should be reviewed by Operations and Finance before final approval.",
   "sources": [
     {
-      "documentId": "doc_12345",
-      "title": "Internal Policy Document",
+      "documentId": "generated-document-id",
+      "title": "sample-policy.txt",
       "chunkId": "chunk_001"
     }
   ]
