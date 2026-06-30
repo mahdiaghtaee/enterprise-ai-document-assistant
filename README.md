@@ -80,6 +80,12 @@ This project demonstrates the type of work I can deliver for clients who need AI
 
 ---
 
+## Portfolio Roadmap
+
+See [`docs/FREELANCE_PORTFOLIO_PLAN.md`](docs/FREELANCE_PORTFOLIO_PLAN.md) for the managed execution plan.
+
+---
+
 ## Technology Stack
 
 | Area | Technology |
