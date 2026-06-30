@@ -86,6 +86,17 @@ See [`docs/FREELANCE_PORTFOLIO_PLAN.md`](docs/FREELANCE_PORTFOLIO_PLAN.md) for t
 
 ---
 
+## Documentation and Demo Assets
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical architecture and service responsibilities
+- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, and troubleshooting
+- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — intended health, upload, search, and RAG API examples
+- [`docs/DEMO_SCENARIO.md`](docs/DEMO_SCENARIO.md) — client-facing business demo narrative
+- [`docs/SWAGGER_DEMO_NOTES.md`](docs/SWAGGER_DEMO_NOTES.md) — how to present the API through Swagger/OpenAPI
+- [`samples/sample-policy.txt`](samples/sample-policy.txt) — sample document for upload and RAG demo flow
+
+---
+
 ## Technology Stack
 
 | Area | Technology |
