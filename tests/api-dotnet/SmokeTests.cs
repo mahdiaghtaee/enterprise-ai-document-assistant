@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
@@ -15,11 +16,11 @@ public sealed class SmokeTests
     }
 }
 
-public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ApiIntegrationTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly HttpClient _client;
 
-    public ApiIntegrationTests(WebApplicationFactory<Program> factory)
+    public ApiIntegrationTests(ApiWebApplicationFactory factory)
     {
         _client = factory.CreateClient();
     }
@@ -58,5 +59,33 @@ public sealed class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("sample-policy.txt", root.GetProperty("fileName").GetString());
         Assert.Equal("text/plain", root.GetProperty("contentType").GetString());
         Assert.Equal("metadata-only", root.GetProperty("status").GetString());
+    }
+}
+
+public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseContentRoot(FindApiContentRoot());
+    }
+
+    private static string FindApiContentRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "src", "api-dotnet");
+            var projectFile = Path.Combine(candidate, "EnterpriseDocumentAssistant.Api.csproj");
+
+            if (File.Exists(projectFile))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate src/api-dotnet content root.");
     }
 }
