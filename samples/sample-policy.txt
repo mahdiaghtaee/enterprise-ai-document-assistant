@@ -1,0 +1,23 @@
+Internal Vendor Contract Policy
+
+Purpose
+This sample policy is used for demonstrating the Enterprise AI Document Assistant workflow.
+
+Policy Summary
+All vendor contracts must be reviewed by the Operations department before approval. Contracts above the approved threshold must also be reviewed by Finance. Final approval must be recorded before the contract is signed.
+
+Access Control
+Only authorized employees may upload or review contract documents. Access to vendor contract records should be limited to users with a business need.
+
+Review Process
+1. The requester uploads the vendor contract.
+2. Operations reviews the contract for business requirements.
+3. Finance reviews contracts above the approved threshold.
+4. Final approval is recorded.
+5. The contract may be signed only after approval is complete.
+
+Example Questions
+- Who needs to review vendor contracts?
+- When is Finance approval required?
+- What must happen before the contract is signed?
+- Who should have access to vendor contract documents?
