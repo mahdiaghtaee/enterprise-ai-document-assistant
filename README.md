@@ -1,5 +1,7 @@
 # Enterprise AI Document Assistant
 
+![CI](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml/badge.svg)
+
 A production-oriented backend project for building secure enterprise document assistants with **ASP.NET Core**, **Python FastAPI**, **PostgreSQL**, **Redis**, **Docker**, and a Retrieval-Augmented Generation (RAG) architecture.
 
 This repository is designed as a portfolio-grade implementation for organizations that want to search, understand, and query internal documents such as PDFs, contracts, reports, policies, and knowledge-base files.
@@ -46,6 +48,7 @@ This project demonstrates the type of work I can deliver for clients who need AI
 - Implemented the foundation for document upload and metadata management.
 - Added Swagger/OpenAPI support for API exploration.
 - Added health endpoints to support operational readiness.
+- Added GitHub Actions CI foundation for build, test, and Docker Compose validation.
 - Defined a clear roadmap for RAG, semantic search, authentication, background indexing, observability, and multi-tenancy.
 - Structured the project as a portfolio-ready enterprise AI backend rather than a simple prototype.
 
@@ -61,6 +64,7 @@ This project demonstrates the type of work I can deliver for clients who need AI
 - Document upload API foundation
 - Swagger/OpenAPI documentation
 - Health check endpoints
+- GitHub Actions CI foundation
 
 ---
 
@@ -75,7 +79,6 @@ This project demonstrates the type of work I can deliver for clients who need AI
 - Authentication and role-based access control
 - Structured logging and observability
 - Integration tests
-- GitHub Actions CI workflow
 - Multi-tenant enterprise architecture
 
 ---
@@ -90,9 +93,10 @@ See [`docs/FREELANCE_PORTFOLIO_PLAN.md`](docs/FREELANCE_PORTFOLIO_PLAN.md) for t
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical architecture and service responsibilities
 - [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, and troubleshooting
-- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — intended health, upload, search, and RAG API examples
+- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — current health/upload endpoints and planned search/RAG examples
 - [`docs/DEMO_SCENARIO.md`](docs/DEMO_SCENARIO.md) — client-facing business demo narrative
 - [`docs/SWAGGER_DEMO_NOTES.md`](docs/SWAGGER_DEMO_NOTES.md) — how to present the API through Swagger/OpenAPI
+- [`docs/HEALTH_AND_OBSERVABILITY.md`](docs/HEALTH_AND_OBSERVABILITY.md) — health, logging, metrics, and audit direction
 - [`samples/sample-policy.txt`](samples/sample-policy.txt) — sample document for upload and RAG demo flow
 
 ---
@@ -107,6 +111,7 @@ See [`docs/FREELANCE_PORTFOLIO_PLAN.md`](docs/FREELANCE_PORTFOLIO_PLAN.md) for t
 | Cache / Background Infrastructure | Redis |
 | API Documentation | Swagger / OpenAPI |
 | Local Environment | Docker Compose |
+| CI | GitHub Actions |
 | AI Architecture | RAG, Semantic Search, Document Indexing |
 
 ---
@@ -151,7 +156,11 @@ Document Processing / Indexing / RAG Pipeline
 docker compose up --build
 ```
 
-After the services start, open the API documentation through the ASP.NET Core Swagger endpoint.
+After the services start, open the API documentation:
+
+```text
+http://localhost:5000/swagger
+```
 
 ---
 

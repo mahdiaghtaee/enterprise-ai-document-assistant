@@ -34,31 +34,47 @@ Expected services:
 - PostgreSQL
 - Redis
 
+## Local URLs
+
+Docker Compose publishes the services to these host ports:
+
+| Service | URL |
+|---|---|
+| ASP.NET Core API | `http://localhost:5000` |
+| Swagger UI | `http://localhost:5000/swagger` |
+| Python AI service | `http://localhost:8000` |
+| PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
+
 ## Validate the API
 
 After startup, check the health endpoint:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:5000/health
 ```
 
-Then open Swagger/OpenAPI in the browser if the API exposes it in the development environment.
+Then open Swagger/OpenAPI in the browser:
+
+```text
+http://localhost:5000/swagger
+```
 
 ## Suggested Manual Demo
 
 1. Start the services with Docker Compose.
-2. Open the API documentation.
+2. Open the API documentation at `http://localhost:5000/swagger`.
 3. Check the health endpoint.
-4. Upload a sample document.
+4. Upload `samples/sample-policy.txt`.
 5. Confirm that metadata is stored.
-6. Ask a business question using the planned RAG flow.
-7. Review returned sources or expected source references.
+6. Discuss the planned RAG flow using the API examples.
+7. Review expected source references in the demo documentation.
 
 ## Troubleshooting
 
 ### Port already in use
 
-If port `8080`, `8000`, `5432`, or `6379` is already in use, stop the conflicting service or adjust the Docker Compose port mapping.
+If port `5000`, `8000`, `5432`, or `6379` is already in use, stop the conflicting service or adjust the Docker Compose port mapping.
 
 ### Database startup delay
 
