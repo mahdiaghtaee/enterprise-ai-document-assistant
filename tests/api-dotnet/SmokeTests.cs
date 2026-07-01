@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace EnterpriseDocumentAssistant.Api.Tests;
@@ -62,11 +62,12 @@ public sealed class ApiIntegrationTests : IClassFixture<ApiWebApplicationFactory
     }
 }
 
-public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
+public sealed class ApiWebApplicationFactory : WebApplicationFactory<global::Program>
 {
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    protected override IHost CreateHost(IHostBuilder builder)
     {
         builder.UseContentRoot(FindApiContentRoot());
+        return base.CreateHost(builder);
     }
 
     private static string FindApiContentRoot()
