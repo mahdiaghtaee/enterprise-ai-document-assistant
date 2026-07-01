@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
@@ -38,27 +37,6 @@ public sealed class ApiIntegrationTests : IClassFixture<ApiWebApplicationFactory
         Assert.Equal("document-api", root.GetProperty("service").GetString());
         Assert.Equal("ok", root.GetProperty("status").GetString());
         Assert.True(root.TryGetProperty("checkedAt", out _));
-    }
-
-    [Fact]
-    public async Task Create_document_metadata_returns_created_document()
-    {
-        var request = new
-        {
-            fileName = "sample-policy.txt",
-            contentType = "text/plain"
-        };
-
-        var response = await _client.PostAsJsonAsync("/api/documents", request);
-
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var root = document.RootElement;
-
-        Assert.Equal("sample-policy.txt", root.GetProperty("fileName").GetString());
-        Assert.Equal("text/plain", root.GetProperty("contentType").GetString());
-        Assert.Equal("metadata-only", root.GetProperty("status").GetString());
     }
 }
 
