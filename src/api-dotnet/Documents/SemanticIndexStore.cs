@@ -66,3 +66,32 @@ public sealed record SemanticSearchRequest(
 public sealed record SemanticSearchResult(
     SemanticIndexRecord Record,
     float Score);
+
+public sealed class InMemorySemanticIndexStore : ISemanticIndexStore
+{
+    private readonly List<SemanticIndexRecord> _records = new();
+
+    public Task UpsertAsync(IReadOnlyList<SemanticIndexRecord> records, CancellationToken cancellationToken)
+    {
+        foreach (var record in records)
+        {
+            record.Validate();
+            _records.Add(record);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<SemanticSearchResult>> SearchAsync(SemanticSearchRequest request, CancellationToken cancellationToken)
+    {
+        request.Validate();
+
+        IReadOnlyList<SemanticSearchResult> results = _records
+            .Where(record => record.Dimensions == request.QueryEmbedding.Count)
+            .Select(record => new SemanticSearchResult(record, 1))
+            .Take(request.TopK)
+            .ToArray();
+
+        return Task.FromResult(results);
+    }
+}
