@@ -9,6 +9,7 @@ builder.Services.AddSingleton<IDocumentRepository, InMemoryDocumentRepository>()
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
+builder.Services.AddSingleton<ISemanticIndexStore, InMemorySemanticIndexStore>();
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {
