@@ -18,4 +18,5 @@ public sealed record UploadDocumentResponse(
     string FileName,
     string Status,
     string? IndexingStatus,
-    DocumentTextExtractionSummary? TextExtraction);
+    DocumentTextExtractionSummary? TextExtraction,
+    DocumentChunkingSummary? Chunking);
