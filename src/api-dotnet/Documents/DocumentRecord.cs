@@ -20,7 +20,7 @@ public sealed record UploadDocumentResponse(
     string? IndexingStatus,
     DocumentTextExtractionSummary? TextExtraction,
     DocumentChunkingSummary? Chunking,
-    EmbeddingSummary? Embeddings);
+    EmbeddingSummary? Embeddings = null);
 
 public sealed record EmbeddingSummary(
     string Model,
