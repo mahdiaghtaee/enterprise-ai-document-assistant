@@ -19,4 +19,10 @@ public sealed record UploadDocumentResponse(
     string Status,
     string? IndexingStatus,
     DocumentTextExtractionSummary? TextExtraction,
-    DocumentChunkingSummary? Chunking);
+    DocumentChunkingSummary? Chunking,
+    EmbeddingSummary? Embeddings = null);
+
+public sealed record EmbeddingSummary(
+    string Model,
+    int VectorCount,
+    int Dimensions);
