@@ -8,6 +8,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IDocumentRepository, InMemoryDocumentRepository>();
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
+builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {
@@ -51,6 +52,7 @@ app.MapPost("/api/documents/upload", async (
     IDocumentStorage storage,
     IDocumentRepository repository,
     IDocumentTextExtractor textExtractor,
+    IDocumentChunker chunker,
     IAiIndexingClient aiClient,
     CancellationToken cancellationToken) =>
 {
@@ -75,6 +77,21 @@ app.MapPost("/api/documents/upload", async (
 
     var extractionResult = await textExtractor.ExtractAsync(storedDocument, cancellationToken);
     var extractionSummary = DocumentTextExtractionSummary.FromResult(extractionResult);
+    DocumentChunkingSummary? chunkingSummary = null;
+
+    if (extractionResult.Succeeded && extractionResult.Text is not null)
+    {
+        var chunkingOptions = DocumentChunkingOptions.Default;
+        var chunks = chunker.Split(
+            new DocumentChunkingInput(document.Id, document.FileName, extractionResult.Text),
+            chunkingOptions);
+
+        chunkingSummary = new DocumentChunkingSummary(
+            chunks.Count,
+            chunkingOptions.MaxChunkLength,
+            chunkingOptions.OverlapLength,
+            chunks.Sum(chunk => chunk.CharacterCount));
+    }
 
     var indexingStatus = extractionResult.Succeeded
         ? await aiClient.QueueIndexingAsync(
@@ -88,7 +105,8 @@ app.MapPost("/api/documents/upload", async (
         document.FileName,
         document.Status,
         indexingStatus,
-        extractionSummary);
+        extractionSummary,
+        chunkingSummary);
 
     return Results.Created($"/api/documents/{document.Id}", response);
 })
