@@ -17,4 +17,5 @@ public sealed record UploadDocumentResponse(
     Guid Id,
     string FileName,
     string Status,
-    string? IndexingStatus);
+    string? IndexingStatus,
+    DocumentTextExtractionSummary? TextExtraction);

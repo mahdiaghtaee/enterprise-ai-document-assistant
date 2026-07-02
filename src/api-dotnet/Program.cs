@@ -7,6 +7,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IDocumentRepository, InMemoryDocumentRepository>();
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
+builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {
@@ -49,6 +50,7 @@ app.MapPost("/api/documents/upload", async (
     IFormFile file,
     IDocumentStorage storage,
     IDocumentRepository repository,
+    IDocumentTextExtractor textExtractor,
     IAiIndexingClient aiClient,
     CancellationToken cancellationToken) =>
 {
@@ -71,16 +73,22 @@ app.MapPost("/api/documents/upload", async (
         storedDocument.SizeInBytes,
         storedDocument.StoragePath);
 
-    var indexingStatus = await aiClient.QueueIndexingAsync(
-        storedDocument.OriginalFileName,
-        storedDocument.ContentType,
-        cancellationToken);
+    var extractionResult = await textExtractor.ExtractAsync(storedDocument, cancellationToken);
+    var extractionSummary = DocumentTextExtractionSummary.FromResult(extractionResult);
+
+    var indexingStatus = extractionResult.Succeeded
+        ? await aiClient.QueueIndexingAsync(
+            storedDocument.OriginalFileName,
+            storedDocument.ContentType,
+            cancellationToken)
+        : "skipped: text extraction failed";
 
     var response = new UploadDocumentResponse(
         document.Id,
         document.FileName,
         document.Status,
-        indexingStatus);
+        indexingStatus,
+        extractionSummary);
 
     return Results.Created($"/api/documents/{document.Id}", response);
 })
