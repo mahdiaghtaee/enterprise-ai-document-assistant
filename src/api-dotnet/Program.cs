@@ -9,6 +9,7 @@ builder.Services.AddSingleton<IDocumentRepository, InMemoryDocumentRepository>()
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
+builder.Services.AddSingleton<IEmbeddingGenerator, DeterministicEmbeddingGenerator>();
 builder.Services.AddSingleton<ISemanticIndexStore, InMemorySemanticIndexStore>();
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
@@ -54,6 +55,8 @@ app.MapPost("/api/documents/upload", async (
     IDocumentRepository repository,
     IDocumentTextExtractor textExtractor,
     IDocumentChunker chunker,
+    IEmbeddingGenerator embeddingGenerator,
+    ISemanticIndexStore semanticIndexStore,
     IAiIndexingClient aiClient,
     CancellationToken cancellationToken) =>
 {
@@ -79,6 +82,7 @@ app.MapPost("/api/documents/upload", async (
     var extractionResult = await textExtractor.ExtractAsync(storedDocument, cancellationToken);
     var extractionSummary = DocumentTextExtractionSummary.FromResult(extractionResult);
     DocumentChunkingSummary? chunkingSummary = null;
+    EmbeddingSummary? embeddingSummary = null;
 
     if (extractionResult.Succeeded && extractionResult.Text is not null)
     {
@@ -92,6 +96,32 @@ app.MapPost("/api/documents/upload", async (
             chunkingOptions.MaxChunkLength,
             chunkingOptions.OverlapLength,
             chunks.Sum(chunk => chunk.CharacterCount));
+
+        if (chunks.Count > 0)
+        {
+            var embeddingResponse = await embeddingGenerator.GenerateAsync(
+                new EmbeddingRequest(
+                    chunks.Select(chunk => new EmbeddingInput(
+                        chunk.DocumentId,
+                        chunk.FileName,
+                        chunk.Index,
+                        chunk.Text)).ToArray()),
+                cancellationToken);
+
+            await semanticIndexStore.UpsertAsync(
+                embeddingResponse.Vectors.Select(vector => new SemanticIndexRecord(
+                    vector.DocumentId,
+                    vector.FileName,
+                    vector.ChunkIndex,
+                    vector.Text,
+                    vector.Values)).ToArray(),
+                cancellationToken);
+
+            embeddingSummary = new EmbeddingSummary(
+                embeddingResponse.Model,
+                embeddingResponse.Vectors.Count,
+                embeddingResponse.Vectors[0].Dimensions);
+        }
     }
 
     var indexingStatus = extractionResult.Succeeded
@@ -107,11 +137,54 @@ app.MapPost("/api/documents/upload", async (
         document.Status,
         indexingStatus,
         extractionSummary,
-        chunkingSummary);
+        chunkingSummary,
+        embeddingSummary);
 
     return Results.Created($"/api/documents/{document.Id}", response);
 })
 .DisableAntiforgery();
+
+app.MapPost("/api/documents/search", async (
+    DocumentSearchRequest request,
+    IEmbeddingGenerator embeddingGenerator,
+    ISemanticIndexStore semanticIndexStore,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Query))
+    {
+        return Results.BadRequest(new { message = "Search query is required." });
+    }
+
+    if (request.TopK <= 0)
+    {
+        return Results.BadRequest(new { message = "TopK must be greater than zero." });
+    }
+
+    var embeddingResponse = await embeddingGenerator.GenerateAsync(
+        new EmbeddingRequest(
+            new[]
+            {
+                new EmbeddingInput(Guid.NewGuid(), "query", 0, request.Query)
+            }),
+        cancellationToken);
+
+    var queryEmbedding = embeddingResponse.Vectors[0].Values;
+    var results = await semanticIndexStore.SearchAsync(
+        new SemanticSearchRequest(queryEmbedding, request.TopK),
+        cancellationToken);
+
+    var response = new DocumentSearchResponse(
+        request.Query,
+        results.Count,
+        results.Select(result => new DocumentSearchMatch(
+            result.Record.DocumentId,
+            result.Record.FileName,
+            result.Record.ChunkIndex,
+            result.Record.Text,
+            result.Score)).ToArray());
+
+    return Results.Ok(response);
+});
 
 app.Run();
 
