@@ -76,6 +76,7 @@ public sealed class InMemorySemanticIndexStore : ISemanticIndexStore
         foreach (var record in records)
         {
             record.Validate();
+            _records.RemoveAll(existing => existing.DocumentId == record.DocumentId && existing.ChunkIndex == record.ChunkIndex);
             _records.Add(record);
         }
 
@@ -88,10 +89,34 @@ public sealed class InMemorySemanticIndexStore : ISemanticIndexStore
 
         IReadOnlyList<SemanticSearchResult> results = _records
             .Where(record => record.Dimensions == request.QueryEmbedding.Count)
-            .Select(record => new SemanticSearchResult(record, 1))
+            .Select(record => new SemanticSearchResult(record, CalculateScore(request.QueryEmbedding, record.Embedding)))
+            .OrderByDescending(result => result.Score)
+            .ThenBy(result => result.Record.FileName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(result => result.Record.ChunkIndex)
             .Take(request.TopK)
             .ToArray();
 
         return Task.FromResult(results);
+    }
+
+    private static float CalculateScore(IReadOnlyList<float> left, IReadOnlyList<float> right)
+    {
+        var dot = 0f;
+        var leftLength = 0f;
+        var rightLength = 0f;
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            dot += left[index] * right[index];
+            leftLength += left[index] * left[index];
+            rightLength += right[index] * right[index];
+        }
+
+        if (leftLength == 0 || rightLength == 0)
+        {
+            return 0;
+        }
+
+        return dot / (MathF.Sqrt(leftLength) * MathF.Sqrt(rightLength));
     }
 }
