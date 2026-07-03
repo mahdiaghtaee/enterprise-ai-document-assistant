@@ -9,7 +9,7 @@ It uses the current RAG foundation:
 1. Query text
 2. Embedding generation
 3. Semantic index lookup
-4. Matched chunk response with source metadata
+4. Ranked matched chunk response with source metadata
 
 ---
 
@@ -66,8 +66,17 @@ Search requests are processed as follows:
 Search query
   -> Query embedding
   -> Semantic index lookup
-  -> Matched chunks with metadata
+  -> Score matching chunks
+  -> Return ranked chunks with metadata
 ```
+
+---
+
+## Ranking
+
+Search results are ordered by similarity score in descending order.
+
+When scores are equal, the store uses deterministic ordering by file name and chunk index. This keeps test output and API behavior predictable.
 
 ---
 
@@ -75,14 +84,14 @@ Search query
 
 - The current embedding generator is deterministic and local.
 - The current semantic index store is in memory.
-- Ranking is intentionally basic and can be improved later.
 - Indexed records are lost when the API process restarts.
+- Production ranking can be improved further when a persistent provider is added.
 
 ---
 
 ## Next Steps
 
-1. Improve ranking logic.
-2. Add persistent index storage.
-3. Add source attribution to answer generation.
-4. Add an ask endpoint that uses search results as context.
+1. Add persistent index storage.
+2. Add source attribution to answer generation.
+3. Add an ask endpoint that uses search results as context.
+4. Add production embedding provider support.
