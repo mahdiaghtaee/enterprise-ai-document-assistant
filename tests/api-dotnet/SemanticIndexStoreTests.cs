@@ -74,19 +74,21 @@ public sealed class SemanticIndexStoreTests
     public async Task SearchAsync_uses_deterministic_order_when_scores_are_equal()
     {
         var store = new InMemorySemanticIndexStore();
-        var documentId = Guid.NewGuid();
+        var bDocumentId = Guid.NewGuid();
+        var aDocumentId = Guid.NewGuid();
 
         await store.UpsertAsync(
             new[]
             {
-                new SemanticIndexRecord(documentId, "b-file.txt", 1, "Same score B", new[] { 1f, 0f }),
-                new SemanticIndexRecord(documentId, "a-file.txt", 1, "Same score A", new[] { 1f, 0f }),
-                new SemanticIndexRecord(documentId, "a-file.txt", 0, "Same score A first", new[] { 1f, 0f })
+                new SemanticIndexRecord(bDocumentId, "b-file.txt", 1, "Same score B", new[] { 1f, 0f }),
+                new SemanticIndexRecord(aDocumentId, "a-file.txt", 1, "Same score A", new[] { 1f, 0f }),
+                new SemanticIndexRecord(aDocumentId, "a-file.txt", 0, "Same score A first", new[] { 1f, 0f })
             },
             CancellationToken.None);
 
         var results = await store.SearchAsync(new SemanticSearchRequest(new[] { 1f, 0f }, TopK: 3), CancellationToken.None);
 
+        Assert.Equal(3, results.Count);
         Assert.Equal("a-file.txt", results[0].Record.FileName);
         Assert.Equal(0, results[0].Record.ChunkIndex);
         Assert.Equal("a-file.txt", results[1].Record.FileName);
