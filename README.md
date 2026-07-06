@@ -68,18 +68,29 @@ This project demonstrates the type of work I can deliver for clients who need AI
 
 ---
 
-## Planned Features
+## Execution Roadmap
 
-- Persistent document storage
-- Background document indexing
-- Text extraction and chunking pipeline
-- Semantic search
-- Vector database abstraction
-- RAG question answering with source attribution
-- Authentication and role-based access control
-- Structured logging and observability
-- Integration tests
-- Multi-tenant enterprise architecture
+### v0.1 - Foundation
+
+- [ ] Authentication and role-based access control
+- [ ] Semantic vector search
+- [ ] RAG ask endpoint with source attribution
+- [ ] Document chunking and embedding pipeline
+
+### v0.2 - Enterprise Readiness
+
+- [ ] OpenTelemetry observability foundation
+- [ ] Audit logging direction
+- [ ] Background indexing workflow
+- [ ] Health and diagnostics hardening
+
+### v1.0 - Production Portfolio Release
+
+- [ ] Integration tests
+- [ ] Docker Compose hardening
+- [ ] CI/CD quality gates
+- [ ] Complete documentation and demo flow
+- [ ] First stable release
 
 ---
 
