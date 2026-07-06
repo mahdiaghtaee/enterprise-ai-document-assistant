@@ -1,6 +1,6 @@
 # API Examples
 
-This document describes the current and planned client-facing API flow for the Enterprise AI Document Assistant.
+This document describes the current client-facing API flow for the Enterprise AI Document Assistant.
 
 The API runs inside the container on port `8080`, and Docker Compose publishes it to the host on port `5000`.
 
@@ -68,7 +68,19 @@ Expected response shape:
   "documentId": "generated-document-id",
   "fileName": "sample-policy.txt",
   "status": "uploaded",
-  "indexingStatus": "queued"
+  "indexingStatus": "queued_for_indexing",
+  "extraction": {
+    "succeeded": true,
+    "characterCount": 1200
+  },
+  "chunking": {
+    "chunkCount": 3
+  },
+  "embedding": {
+    "model": "deterministic-local",
+    "vectorCount": 3,
+    "dimensions": 16
+  }
 }
 ```
 
@@ -93,12 +105,12 @@ Expected response shape:
 ]
 ```
 
-## Planned: Search Documents
+## Search Documents
 
 Business purpose: retrieve relevant internal knowledge before answering a user question.
 
 ```bash
-curl -X POST http://localhost:5000/api/search \
+curl -X POST http://localhost:5000/api/documents/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What is the approval process for vendor contracts?",
@@ -106,28 +118,32 @@ curl -X POST http://localhost:5000/api/search \
   }'
 ```
 
-Expected future response shape:
+Expected response shape:
 
 ```json
 {
   "query": "What is the approval process for vendor contracts?",
-  "results": [
+  "resultCount": 1,
+  "matches": [
     {
       "documentId": "generated-document-id",
-      "title": "sample-policy.txt",
-      "score": 0.91,
-      "snippet": "Vendor contracts must be reviewed by Operations and Finance before approval."
+      "fileName": "sample-policy.txt",
+      "chunkIndex": 0,
+      "text": "Vendor contracts must be reviewed by Operations and Finance before approval.",
+      "score": 0.91
     }
   ]
 }
 ```
 
-## Planned: Ask a Question with RAG
+## Ask a Question with RAG
 
 Business purpose: answer a business question using private company documents and include source attribution.
 
+This first version is deterministic and local. It does not call an external LLM provider. The answer is generated from the highest-ranked retrieved source chunk, and all source chunks are returned for verification.
+
 ```bash
-curl -X POST http://localhost:5000/api/ask \
+curl -X POST http://localhost:5000/api/documents/ask \
   -H "Content-Type: application/json" \
   -d '{
     "question": "Who needs to approve vendor contracts?",
@@ -135,16 +151,20 @@ curl -X POST http://localhost:5000/api/ask \
   }'
 ```
 
-Expected future response shape:
+Expected response shape:
 
 ```json
 {
-  "answer": "Vendor contracts should be reviewed by Operations and Finance before final approval.",
+  "question": "Who needs to approve vendor contracts?",
+  "answer": "Based on the indexed documents, the most relevant source is from sample-policy.txt: ...",
+  "sourceCount": 1,
   "sources": [
     {
       "documentId": "generated-document-id",
-      "title": "sample-policy.txt",
-      "chunkId": "chunk_001"
+      "fileName": "sample-policy.txt",
+      "chunkIndex": 0,
+      "score": 0.91,
+      "text": "Vendor contracts must be reviewed by Operations and Finance before approval."
     }
   ]
 }
