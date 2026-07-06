@@ -186,6 +186,57 @@ app.MapPost("/api/documents/search", async (
     return Results.Ok(response);
 });
 
+app.MapPost("/api/documents/ask", async (
+    DocumentAskRequest request,
+    IEmbeddingGenerator embeddingGenerator,
+    ISemanticIndexStore semanticIndexStore,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Question))
+    {
+        return Results.BadRequest(new { message = "Question is required." });
+    }
+
+    var topK = request.TopK ?? 3;
+
+    if (topK <= 0)
+    {
+        return Results.BadRequest(new { message = "TopK must be greater than zero." });
+    }
+
+    var embeddingResponse = await embeddingGenerator.GenerateAsync(
+        new EmbeddingRequest(
+            new[]
+            {
+                new EmbeddingInput(Guid.NewGuid(), "question", 0, request.Question)
+            }),
+        cancellationToken);
+
+    var questionEmbedding = embeddingResponse.Vectors[0].Values;
+    var results = await semanticIndexStore.SearchAsync(
+        new SemanticSearchRequest(questionEmbedding, topK),
+        cancellationToken);
+
+    var sources = results.Select(result => new DocumentAskSource(
+        result.Record.DocumentId,
+        result.Record.FileName,
+        result.Record.ChunkIndex,
+        result.Score,
+        result.Record.Text)).ToArray();
+
+    var answer = sources.Length == 0
+        ? "I could not find enough indexed document context to answer this question. Upload and index a relevant document first, then try again."
+        : $"Based on the indexed documents, the most relevant source is from {sources[0].FileName}: \"{(sources[0].Text.Length > 400 ? sources[0].Text[..400] + "..." : sources[0].Text)}\"";
+
+    var response = new DocumentAskResponse(
+        request.Question,
+        answer,
+        sources.Length,
+        sources);
+
+    return Results.Ok(response);
+});
+
 app.Run();
 
 public partial class Program
