@@ -35,6 +35,7 @@ This project is designed to show practical backend and AI engineering skills:
 - In-memory semantic index store
 - Semantic document search endpoint
 - RAG-style ask endpoint with source attribution
+- Runnable Python demo script
 - Swagger/OpenAPI documentation
 - Health check endpoints
 - GitHub Actions CI foundation
@@ -67,7 +68,7 @@ Future versions can replace the deterministic answer builder with an external or
 ### v0.2 - Enterprise Readiness
 
 - [ ] PostgreSQL-backed document metadata repository
-- [ ] End-to-end demo script
+- [x] End-to-end demo script
 - [ ] OpenTelemetry observability foundation
 - [ ] Audit logging direction
 - [ ] Background indexing workflow
@@ -89,7 +90,8 @@ Future versions can replace the deterministic answer builder with an external or
 - [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, and troubleshooting
 - [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — current health, upload, search, and ask endpoint examples
 - [`docs/RAG_ASK_ENDPOINT.md`](docs/RAG_ASK_ENDPOINT.md) — implementation plan and behavior for the RAG ask endpoint
-- [`scripts/demo-flow.md`](scripts/demo-flow.md) — end-to-end local demo flow
+- [`scripts/demo_flow.py`](scripts/demo_flow.py) — runnable end-to-end local demo script
+- [`scripts/demo-flow.md`](scripts/demo-flow.md) — manual end-to-end local demo flow
 - [`docs/DEMO_SCENARIO.md`](docs/DEMO_SCENARIO.md) — client-facing business demo narrative
 - [`docs/SWAGGER_DEMO_NOTES.md`](docs/SWAGGER_DEMO_NOTES.md) — how to present the API through Swagger/OpenAPI
 - [`docs/HEALTH_AND_OBSERVABILITY.md`](docs/HEALTH_AND_OBSERVABILITY.md) — health, logging, metrics, and audit direction
@@ -109,7 +111,13 @@ Open Swagger:
 http://localhost:5000/swagger
 ```
 
-Then follow:
+Run the end-to-end demo:
+
+```bash
+python scripts/demo_flow.py
+```
+
+Or follow the manual guide:
 
 ```text
 scripts/demo-flow.md
