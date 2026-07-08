@@ -36,9 +36,12 @@ This project is designed to show practical backend and AI engineering skills:
 - Semantic document search endpoint
 - RAG-style ask endpoint with source attribution
 - Runnable Python demo script
+- Sample business documents
 - Swagger/OpenAPI documentation
 - Health check endpoints
 - GitHub Actions CI foundation
+- MIT license
+- Contribution and issue templates
 
 ---
 
@@ -58,28 +61,38 @@ Future versions can replace the deterministic answer builder with an external or
 
 ## Execution Roadmap
 
-### v0.1 - Foundation
+### v0.1 - Portfolio Ready
+
+- [x] Clear README
+- [x] Architecture diagram
+- [x] Runnable local demo
+- [x] MIT license
+- [x] Contributing guide
+- [x] Code of conduct
+- [x] Issue templates
+- [x] Pull request template
+- [x] Release notes draft
+
+### v0.2 - Usable MVP
+
+- [ ] Simple Web UI
+- [ ] Document upload screen
+- [ ] Document list screen
+- [ ] Search screen
+- [ ] Ask/chat screen
+- [ ] Source chunk viewer
+- [ ] PostgreSQL-backed document metadata repository
+- [ ] More integration tests
+
+### v1.0 - Production Portfolio Release
 
 - [ ] Authentication and role-based access control
-- [x] Semantic vector search
-- [x] RAG ask endpoint with source attribution
-- [x] Document chunking and embedding pipeline
-
-### v0.2 - Enterprise Readiness
-
-- [ ] PostgreSQL-backed document metadata repository
-- [x] End-to-end demo script
 - [ ] OpenTelemetry observability foundation
 - [ ] Audit logging direction
 - [ ] Background indexing workflow
 - [ ] Health and diagnostics hardening
-
-### v1.0 - Production Portfolio Release
-
-- [ ] Integration tests
 - [ ] Docker Compose hardening
 - [ ] CI/CD quality gates
-- [ ] Complete documentation and demo flow
 - [ ] First stable release
 
 ---
@@ -87,15 +100,20 @@ Future versions can replace the deterministic answer builder with an external or
 ## Documentation and Demo Assets
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical architecture and service responsibilities
+- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md) — Mermaid architecture diagram
+- [`docs/PHASE_0_1_PLAN.md`](docs/PHASE_0_1_PLAN.md) — practical phase 0 and phase 1 execution plan
 - [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, and troubleshooting
 - [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — current health, upload, search, and ask endpoint examples
 - [`docs/RAG_ASK_ENDPOINT.md`](docs/RAG_ASK_ENDPOINT.md) — implementation plan and behavior for the RAG ask endpoint
+- [`docs/RELEASE_NOTES_v0.1.0.md`](docs/RELEASE_NOTES_v0.1.0.md) — release notes draft for the first milestone
 - [`scripts/demo_flow.py`](scripts/demo_flow.py) — runnable end-to-end local demo script
 - [`scripts/demo-flow.md`](scripts/demo-flow.md) — manual end-to-end local demo flow
 - [`docs/DEMO_SCENARIO.md`](docs/DEMO_SCENARIO.md) — client-facing business demo narrative
 - [`docs/SWAGGER_DEMO_NOTES.md`](docs/SWAGGER_DEMO_NOTES.md) — how to present the API through Swagger/OpenAPI
 - [`docs/HEALTH_AND_OBSERVABILITY.md`](docs/HEALTH_AND_OBSERVABILITY.md) — health, logging, metrics, and audit direction
 - [`samples/sample-policy.txt`](samples/sample-policy.txt) — sample document for upload and RAG demo flow
+- [`samples/hr-policy.txt`](samples/hr-policy.txt) — sample HR policy document
+- [`samples/contract-policy.txt`](samples/contract-policy.txt) — sample contract review policy document
 
 ---
 
