@@ -15,6 +15,15 @@ services:
       - redis
       - ai-service
 
+  web-ui:
+    build:
+      context: .
+      dockerfile: src/web-ui/Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - document-api
+
   ai-service:
     build:
       context: .
