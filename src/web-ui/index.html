@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Enterprise AI Document Assistant</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Enterprise AI Document Assistant</p>
+      <h1>Upload internal documents, search them semantically, and ask grounded questions.</h1>
+      <p class="hero-text">
+        This UI is intentionally simple: it demonstrates the product flow without hiding the backend API behavior.
+      </p>
+      <div class="status-row">
+        <button id="healthButton" type="button">Check API health</button>
+        <span id="healthStatus" class="status">Not checked</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>1. Upload document</h2>
+        <p>Upload a text policy or sample business document into the local API.</p>
+        <input id="fileInput" type="file" />
+        <button id="uploadButton" type="button">Upload</button>
+        <pre id="uploadResult"></pre>
+      </article>
+
+      <article class="card">
+        <h2>2. Search</h2>
+        <p>Retrieve the most relevant indexed chunks for a business query.</p>
+        <input id="searchInput" type="text" value="vendor contract approval process" />
+        <button id="searchButton" type="button">Search</button>
+        <pre id="searchResult"></pre>
+      </article>
+
+      <article class="card wide">
+        <h2>3. Ask</h2>
+        <p>Ask a grounded question and review the source chunks returned by the API.</p>
+        <textarea id="questionInput">Who needs to approve vendor contracts?</textarea>
+        <button id="askButton" type="button">Ask</button>
+        <pre id="askResult"></pre>
+      </article>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
