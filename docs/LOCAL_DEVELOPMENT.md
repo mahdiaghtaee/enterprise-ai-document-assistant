@@ -29,6 +29,7 @@ docker compose up --build
 
 Expected services:
 
+- Web UI
 - ASP.NET Core API
 - Python FastAPI AI service
 - PostgreSQL
@@ -40,6 +41,7 @@ Docker Compose publishes the services to these host ports:
 
 | Service | URL |
 |---|---|
+| Web UI | `http://localhost:3000` |
 | ASP.NET Core API | `http://localhost:5000` |
 | Swagger UI | `http://localhost:5000/swagger` |
 | Python AI service | `http://localhost:8000` |
@@ -60,21 +62,37 @@ Then open Swagger/OpenAPI in the browser:
 http://localhost:5000/swagger
 ```
 
+## Validate the Web UI
+
+Open the local UI:
+
+```text
+http://localhost:3000
+```
+
+Use the UI to:
+
+1. Check API health.
+2. Upload a sample text file.
+3. Run semantic search.
+4. Ask a grounded question and review the returned source chunks.
+
 ## Suggested Manual Demo
 
 1. Start the services with Docker Compose.
-2. Open the API documentation at `http://localhost:5000/swagger`.
-3. Check the health endpoint.
-4. Upload `samples/sample-policy.txt`.
-5. Confirm that metadata is stored.
-6. Discuss the planned RAG flow using the API examples.
-7. Review expected source references in the demo documentation.
+2. Open the Web UI at `http://localhost:3000`.
+3. Check the API health status from the UI.
+4. Upload `samples/contract-policy.txt` or `samples/hr-policy.txt`.
+5. Search for a business topic such as `vendor contract approval process`.
+6. Ask `Who needs to approve vendor contracts?`.
+7. Review the answer and source chunks returned by the API.
+8. Open Swagger at `http://localhost:5000/swagger` to show the backend endpoints.
 
 ## Troubleshooting
 
 ### Port already in use
 
-If port `5000`, `8000`, `5432`, or `6379` is already in use, stop the conflicting service or adjust the Docker Compose port mapping.
+If port `3000`, `5000`, `8000`, `5432`, or `6379` is already in use, stop the conflicting service or adjust the Docker Compose port mapping.
 
 ### Database startup delay
 
@@ -88,6 +106,10 @@ Check that the API uses the same AI service URL as the Docker Compose network na
 
 Check the maximum upload size and document storage path in `.env`.
 
+### Browser cannot reach the API
+
+The Web UI calls the API at `http://localhost:5000`. Make sure Docker Compose is running and the API health endpoint responds before using upload, search, or ask.
+
 ## Client Review Checklist
 
 A reviewer should be able to answer:
@@ -95,5 +117,5 @@ A reviewer should be able to answer:
 - What business problem does this project solve?
 - What services are included in the architecture?
 - How does the document upload flow work?
-- How would semantic search and RAG be added?
+- How do semantic search and RAG-style answers work?
 - What parts are production-ready and what parts are planned?
