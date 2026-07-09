@@ -19,11 +19,13 @@ This project is designed to show practical backend and AI engineering skills:
 - Document upload and processing workflow
 - Semantic retrieval and RAG-style answer flow
 - Portfolio-ready documentation and demo material
+- Simple product UI for demonstrating the core workflow
 
 ---
 
 ## Current Features
 
+- Simple Web UI for health check, upload, search, and ask flow
 - ASP.NET Core REST API
 - Python FastAPI AI service
 - Docker Compose environment
@@ -75,11 +77,11 @@ Future versions can replace the deterministic answer builder with an external or
 
 ### v0.2 - Usable MVP
 
-- [ ] Simple Web UI
-- [ ] Document upload screen
+- [x] Simple Web UI
+- [x] Document upload screen
 - [ ] Document list screen
-- [ ] Search screen
-- [ ] Ask/chat screen
+- [x] Search screen
+- [x] Ask/chat screen
 - [ ] Source chunk viewer
 - [ ] PostgreSQL-backed document metadata repository
 - [ ] More integration tests
@@ -123,6 +125,12 @@ Future versions can replace the deterministic answer builder with an external or
 docker compose up --build
 ```
 
+Open the Web UI:
+
+```text
+http://localhost:3000
+```
+
 Open Swagger:
 
 ```text
@@ -147,6 +155,7 @@ scripts/demo-flow.md
 
 | Area | Technology |
 |---|---|
+| Web UI | HTML, CSS, JavaScript, Nginx |
 | Backend API | ASP.NET Core |
 | AI Service | Python, FastAPI |
 | Database | PostgreSQL |
