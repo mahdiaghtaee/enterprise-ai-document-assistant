@@ -5,6 +5,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("LocalWebUi", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 builder.Services.AddSingleton<IDocumentRepository, InMemoryDocumentRepository>();
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
@@ -25,6 +34,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseCors("LocalWebUi");
 
 app.MapGet("/health", () => Results.Ok(new
 {
