@@ -11,9 +11,12 @@ services:
       Redis__ConnectionString: redis:6379
       AiService__BaseUrl: http://ai-service:8000
     depends_on:
-      - postgres
-      - redis
-      - ai-service
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ai-service:
+        condition: service_started
 
   web-ui:
     build:
@@ -41,6 +44,12 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documents -d documents"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
