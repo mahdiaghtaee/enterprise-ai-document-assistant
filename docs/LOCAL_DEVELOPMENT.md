@@ -35,9 +35,15 @@ Expected services:
 - PostgreSQL
 - Redis
 
-## Local URLs
+PostgreSQL initializes the `documents` table from:
 
-Docker Compose publishes the services to these host ports:
+```text
+infra/postgres/init/001_documents.sql
+```
+
+Uploaded document metadata is stored in PostgreSQL and remains available after the API container restarts.
+
+## Local URLs
 
 | Service | URL |
 |---|---|
@@ -50,13 +56,11 @@ Docker Compose publishes the services to these host ports:
 
 ## Validate the API
 
-After startup, check the health endpoint:
-
 ```bash
 curl http://localhost:5000/health
 ```
 
-Then open Swagger/OpenAPI in the browser:
+Open Swagger:
 
 ```text
 http://localhost:5000/swagger
@@ -64,7 +68,7 @@ http://localhost:5000/swagger
 
 ## Validate the Web UI
 
-Open the local UI:
+Open:
 
 ```text
 http://localhost:3000
@@ -74,19 +78,30 @@ Use the UI to:
 
 1. Check API health.
 2. Upload a sample text file.
-3. Run semantic search.
-4. Ask a grounded question and review the returned source chunks.
+3. Refresh the persistent document list.
+4. Run semantic search.
+5. Ask a grounded question.
+6. Open a returned source in the source viewer.
+
+## Run the .NET tests
+
+```bash
+dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+```
+
+The integration tests use the in-memory document repository so they remain isolated from the local PostgreSQL container.
 
 ## Suggested Manual Demo
 
 1. Start the services with Docker Compose.
 2. Open the Web UI at `http://localhost:3000`.
-3. Check the API health status from the UI.
-4. Upload `samples/contract-policy.txt` or `samples/hr-policy.txt`.
-5. Search for a business topic such as `vendor contract approval process`.
-6. Ask `Who needs to approve vendor contracts?`.
-7. Review the answer and source chunks returned by the API.
-8. Open Swagger at `http://localhost:5000/swagger` to show the backend endpoints.
+3. Check the API health status.
+4. Upload `samples/contract-policy.txt`.
+5. Refresh the document list.
+6. Search for `vendor contract approval process`.
+7. Ask `Who needs to approve vendor contracts?`.
+8. Select a returned source and inspect the exact chunk.
+9. Restart the API container and confirm that the document metadata remains in the list.
 
 ## Troubleshooting
 
@@ -94,9 +109,16 @@ Use the UI to:
 
 If port `3000`, `5000`, `8000`, `5432`, or `6379` is already in use, stop the conflicting service or adjust the Docker Compose port mapping.
 
-### Database startup delay
+### Existing PostgreSQL volume does not contain the table
 
-PostgreSQL may need a few seconds before accepting connections. Restart the API service if it starts before the database is ready.
+PostgreSQL initialization scripts only run when the database volume is first created. For local development, recreate the volume:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+This deletes local database data.
 
 ### AI service not reachable
 
@@ -117,5 +139,6 @@ A reviewer should be able to answer:
 - What business problem does this project solve?
 - What services are included in the architecture?
 - How does the document upload flow work?
+- Where is document metadata persisted?
 - How do semantic search and RAG-style answers work?
 - What parts are production-ready and what parts are planned?
