@@ -27,10 +27,11 @@ This project is designed to show practical backend and AI engineering skills:
 
 - Simple Web UI for health check, upload, document list, search, ask, and source inspection
 - ASP.NET Core REST API
+- PostgreSQL-backed document metadata repository
+- PostgreSQL schema initialization and health check
 - Local Web UI CORS policy
 - Python FastAPI AI service
 - Docker Compose environment
-- PostgreSQL database service
 - Redis cache/message infrastructure service
 - Document upload API foundation
 - Text extraction and chunking pipeline
@@ -39,6 +40,7 @@ This project is designed to show practical backend and AI engineering skills:
 - Semantic document search endpoint
 - RAG-style ask endpoint with source attribution
 - Runnable Python demo script
+- API integration tests for health, document creation/listing, search validation, and ask validation
 - Sample business documents
 - Swagger/OpenAPI documentation
 - Health check endpoints
@@ -84,12 +86,14 @@ Future versions can replace the deterministic answer builder with an external or
 - [x] Search screen
 - [x] Ask/chat screen
 - [x] Source chunk viewer
-- [ ] PostgreSQL-backed document metadata repository
-- [ ] More integration tests
+- [x] PostgreSQL-backed document metadata repository
+- [x] More integration tests
 
 ### v1.0 - Production Portfolio Release
 
 - [ ] Authentication and role-based access control
+- [ ] Persistent vector storage
+- [ ] External or local LLM provider integration
 - [ ] OpenTelemetry observability foundation
 - [ ] Audit logging direction
 - [ ] Background indexing workflow
@@ -105,7 +109,7 @@ Future versions can replace the deterministic answer builder with an external or
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical architecture and service responsibilities
 - [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md) — Mermaid architecture diagram
 - [`docs/PHASE_0_1_PLAN.md`](docs/PHASE_0_1_PLAN.md) — practical phase 0 and phase 1 execution plan
-- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, and troubleshooting
+- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, persistence notes, tests, and troubleshooting
 - [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — current health, upload, search, and ask endpoint examples
 - [`docs/RAG_ASK_ENDPOINT.md`](docs/RAG_ASK_ENDPOINT.md) — implementation plan and behavior for the RAG ask endpoint
 - [`docs/RELEASE_NOTES_v0.1.0.md`](docs/RELEASE_NOTES_v0.1.0.md) — release notes draft for the first milestone
@@ -138,16 +142,16 @@ Open Swagger:
 http://localhost:5000/swagger
 ```
 
+Run the .NET integration tests:
+
+```bash
+dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+```
+
 Run the end-to-end demo:
 
 ```bash
 python scripts/demo_flow.py
-```
-
-Or follow the manual guide:
-
-```text
-scripts/demo-flow.md
 ```
 
 ---
@@ -159,10 +163,11 @@ scripts/demo-flow.md
 | Web UI | HTML, CSS, JavaScript, Nginx |
 | Backend API | ASP.NET Core |
 | AI Service | Python, FastAPI |
-| Database | PostgreSQL |
+| Database | PostgreSQL, Npgsql |
 | Cache / Background Infrastructure | Redis |
 | API Documentation | Swagger / OpenAPI |
 | Local Environment | Docker Compose |
+| Tests | xUnit, ASP.NET Core integration testing |
 | CI | GitHub Actions |
 | AI Architecture | RAG, Semantic Search, Document Indexing |
 
