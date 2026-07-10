@@ -25,8 +25,9 @@ This project is designed to show practical backend and AI engineering skills:
 
 ## Current Features
 
-- Simple Web UI for health check, upload, search, and ask flow
+- Simple Web UI for health check, upload, document list, search, ask, and source inspection
 - ASP.NET Core REST API
+- Local Web UI CORS policy
 - Python FastAPI AI service
 - Docker Compose environment
 - PostgreSQL database service
@@ -79,10 +80,10 @@ Future versions can replace the deterministic answer builder with an external or
 
 - [x] Simple Web UI
 - [x] Document upload screen
-- [ ] Document list screen
+- [x] Document list screen
 - [x] Search screen
 - [x] Ask/chat screen
-- [ ] Source chunk viewer
+- [x] Source chunk viewer
 - [ ] PostgreSQL-backed document metadata repository
 - [ ] More integration tests
 
