@@ -12,7 +12,7 @@
       <p class="eyebrow">Enterprise AI Document Assistant</p>
       <h1>Upload internal documents, search them semantically, and ask grounded questions.</h1>
       <p class="hero-text">
-        This UI is intentionally simple: it demonstrates the product flow without hiding the backend API behavior.
+        This UI keeps the product story visible: documents go in, relevant context comes back, and every answer includes reviewable sources.
       </p>
       <div class="status-row">
         <button id="healthButton" type="button">Check API health</button>
@@ -26,23 +26,40 @@
         <p>Upload a text policy or sample business document into the local API.</p>
         <input id="fileInput" type="file" />
         <button id="uploadButton" type="button">Upload</button>
-        <pre id="uploadResult"></pre>
+        <pre id="uploadResult">No upload yet.</pre>
       </article>
 
       <article class="card">
-        <h2>2. Search</h2>
+        <div class="card-heading">
+          <div>
+            <h2>2. Documents</h2>
+            <p>Review the documents currently registered by the API.</p>
+          </div>
+          <button id="refreshDocumentsButton" class="secondary-button" type="button">Refresh</button>
+        </div>
+        <div id="documentsResult" class="document-list empty-state">No documents loaded.</div>
+      </article>
+
+      <article class="card">
+        <h2>3. Search</h2>
         <p>Retrieve the most relevant indexed chunks for a business query.</p>
         <input id="searchInput" type="text" value="vendor contract approval process" />
         <button id="searchButton" type="button">Search</button>
-        <pre id="searchResult"></pre>
+        <div id="searchResult" class="source-list empty-state">Search results will appear here.</div>
+      </article>
+
+      <article class="card">
+        <h2>4. Ask</h2>
+        <p>Ask a grounded question and review the answer before inspecting its sources.</p>
+        <textarea id="questionInput">Who needs to approve vendor contracts?</textarea>
+        <button id="askButton" type="button">Ask</button>
+        <div id="answerResult" class="answer-panel empty-state">The answer will appear here.</div>
       </article>
 
       <article class="card wide">
-        <h2>3. Ask</h2>
-        <p>Ask a grounded question and review the source chunks returned by the API.</p>
-        <textarea id="questionInput">Who needs to approve vendor contracts?</textarea>
-        <button id="askButton" type="button">Ask</button>
-        <pre id="askResult"></pre>
+        <h2>Source viewer</h2>
+        <p>Select a source returned by Search or Ask to inspect the exact indexed chunk.</p>
+        <div id="sourceViewer" class="source-viewer empty-state">No source selected.</div>
       </article>
     </section>
   </main>
