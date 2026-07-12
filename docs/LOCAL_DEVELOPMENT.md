@@ -1,25 +1,48 @@
 # Local Development Guide
 
-This guide helps reviewers and potential freelance clients run the project locally.
+This guide helps contributors and reviewers run the complete project locally and understand which settings are safe to customize.
 
 ## Prerequisites
 
-Install these tools before running the project:
+For the Docker Compose workflow, install:
 
-- Docker
+- Docker Desktop or Docker Engine
 - Docker Compose
-- .NET SDK
-- Python 3.11 or later
+- Git
+
+The .NET SDK and Python 3.11 or later are only required when running tests or scripts directly on the host machine.
 
 ## Environment Setup
 
-Create a local environment file:
+Docker Compose includes development defaults, so the stack can start without a local `.env` file. Copy the example file when you need to change host ports or PostgreSQL development credentials.
+
+Linux or macOS:
 
 ```bash
 cp .env.example .env
 ```
 
-For local demo usage, the default values in `.env.example` are enough to explain the expected configuration. For production usage, all passwords, storage paths, API URLs, and security settings must be reviewed.
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The available settings are:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `WEB_UI_HOST_PORT` | `3000` | Web UI port exposed on the host |
+| `API_HOST_PORT` | `5000` | ASP.NET Core API port exposed on the host |
+| `AI_SERVICE_HOST_PORT` | `8000` | FastAPI service port exposed on the host |
+| `POSTGRES_HOST_PORT` | `5432` | PostgreSQL port exposed on the host |
+| `REDIS_HOST_PORT` | `6379` | Redis port exposed on the host |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | ASP.NET Core runtime environment |
+| `POSTGRES_DB` | `documents` | Local PostgreSQL database name |
+| `POSTGRES_USER` | `documents` | Local PostgreSQL user |
+| `POSTGRES_PASSWORD` | `documents` | Local PostgreSQL password |
+
+These values are intended only for local development. Do not reuse the example password or expose the database and Redis ports in a public deployment.
 
 ## Run with Docker Compose
 
@@ -45,6 +68,8 @@ Uploaded document metadata is stored in PostgreSQL and remains available after t
 
 ## Local URLs
 
+With the default `.env.example` values:
+
 | Service | URL |
 |---|---|
 | Web UI | `http://localhost:3000` |
@@ -53,6 +78,8 @@ Uploaded document metadata is stored in PostgreSQL and remains available after t
 | Python AI service | `http://localhost:8000` |
 | PostgreSQL | `localhost:5432` |
 | Redis | `localhost:6379` |
+
+When a `*_HOST_PORT` value changes, use the corresponding configured port instead.
 
 ## Validate the API
 
@@ -65,6 +92,8 @@ Open Swagger:
 ```text
 http://localhost:5000/swagger
 ```
+
+Replace `5000` when `API_HOST_PORT` has been customized.
 
 ## Validate the Web UI
 
@@ -83,7 +112,7 @@ Use the UI to:
 5. Ask a grounded question.
 6. Open a returned source in the source viewer.
 
-## Run the .NET tests
+## Run the .NET Tests
 
 ```bash
 dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
@@ -94,7 +123,7 @@ The integration tests use the in-memory document repository so they remain isola
 ## Suggested Manual Demo
 
 1. Start the services with Docker Compose.
-2. Open the Web UI at `http://localhost:3000`.
+2. Open the Web UI.
 3. Check the API health status.
 4. Upload `samples/contract-policy.txt`.
 5. Refresh the document list.
@@ -105,34 +134,59 @@ The integration tests use the in-memory document repository so they remain isola
 
 ## Troubleshooting
 
-### Port already in use
+### A host port is already in use
 
-If port `3000`, `5000`, `8000`, `5432`, or `6379` is already in use, stop the conflicting service or adjust the Docker Compose port mapping.
+Change the relevant value in `.env`. For example:
 
-### Existing PostgreSQL volume does not contain the table
+```dotenv
+API_HOST_PORT=5050
+POSTGRES_HOST_PORT=55432
+```
 
-PostgreSQL initialization scripts only run when the database volume is first created. For local development, recreate the volume:
+Then restart the stack:
+
+```bash
+docker compose down
+docker compose up --build
+```
+
+### PostgreSQL settings changed after the first startup
+
+PostgreSQL initialization scripts and initial credentials are applied when the data volume is first created. Changing `POSTGRES_DB`, `POSTGRES_USER`, or `POSTGRES_PASSWORD` does not rewrite an existing volume.
+
+For disposable local data, recreate the volume:
 
 ```bash
 docker compose down -v
 docker compose up --build
 ```
 
-This deletes local database data.
+This command permanently deletes the local PostgreSQL data stored in the Compose volume.
 
-### AI service not reachable
+### AI service is not reachable
 
-Check that the API uses the same AI service URL as the Docker Compose network name.
+Check container status and logs:
+
+```bash
+docker compose ps
+docker compose logs ai-service
+```
+
+The API communicates with the AI service through the internal Compose address `http://ai-service:8000`; changing `AI_SERVICE_HOST_PORT` only changes host access.
 
 ### File upload fails
 
-Check the maximum upload size and document storage path in `.env`.
+Check the API logs and verify that the selected file type and size are supported:
+
+```bash
+docker compose logs document-api
+```
 
 ### Browser cannot reach the API
 
-The Web UI calls the API at `http://localhost:5000`. Make sure Docker Compose is running and the API health endpoint responds before using upload, search, or ask.
+Confirm that the API health endpoint responds and that the Web UI is using the expected default API host port. When `API_HOST_PORT` is changed, the current static Web UI configuration may also need to be updated.
 
-## Client Review Checklist
+## Reviewer Checklist
 
 A reviewer should be able to answer:
 
@@ -141,4 +195,5 @@ A reviewer should be able to answer:
 - How does the document upload flow work?
 - Where is document metadata persisted?
 - How do semantic search and RAG-style answers work?
-- What parts are production-ready and what parts are planned?
+- Which local settings are configurable?
+- What parts are implemented and what production controls remain planned?
