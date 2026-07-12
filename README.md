@@ -1,145 +1,52 @@
 # Enterprise AI Document Assistant
 
-![CI](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/mahdiaghtaee/enterprise-ai-document-assistant?style=social)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/stargazers)
 
-A backend portfolio project for building enterprise document assistants with **ASP.NET Core**, **Python FastAPI**, **PostgreSQL**, **Redis**, **Docker**, and a Retrieval-Augmented Generation architecture.
+A practical, open-source reference implementation for building enterprise document assistants with **ASP.NET Core**, **Python FastAPI**, **PostgreSQL**, **Redis**, **Docker Compose**, semantic search, and Retrieval-Augmented Generation concepts.
 
-This repository demonstrates how business documents can move through upload, text extraction, chunking, embedding, semantic search, and question answering with source matches.
-
----
-
-## Project Value
-
-This project is designed to show practical backend and AI engineering skills:
-
-- ASP.NET Core API design
-- Python FastAPI service integration
-- Docker Compose development workflow
-- PostgreSQL and Redis infrastructure
-- Document upload and processing workflow
-- Semantic retrieval and RAG-style answer flow
-- Portfolio-ready documentation and demo material
-- Simple product UI for demonstrating the core workflow
-
----
-
-## Current Features
-
-- Simple Web UI for health check, upload, document list, search, ask, and source inspection
-- ASP.NET Core REST API
-- PostgreSQL-backed document metadata repository
-- PostgreSQL schema initialization and health check
-- Local Web UI CORS policy
-- Python FastAPI AI service
-- Docker Compose environment
-- Redis cache/message infrastructure service
-- Document upload API foundation
-- Text extraction and chunking pipeline
-- Deterministic local embedding generation
-- In-memory semantic index store
-- Semantic document search endpoint
-- RAG-style ask endpoint with source attribution
-- Runnable Python demo script
-- API integration tests for health, document creation/listing, search validation, and ask validation
-- Sample business documents
-- Swagger/OpenAPI documentation
-- Health check endpoints
-- GitHub Actions CI foundation
-- MIT license
-- Contribution and issue templates
-
----
-
-## Current RAG Scope
-
-The current ask endpoint is deterministic and local. It does not call an external LLM provider yet.
-
-The current flow is:
+The project demonstrates the complete document journey:
 
 ```text
-Upload document -> Extract text -> Chunk -> Embed -> Search -> Ask -> Return answer with sources
+Upload -> Extract -> Chunk -> Embed -> Search -> Ask -> Return grounded sources
 ```
 
-Future versions can replace the deterministic answer builder with an external or local model provider.
+> The current implementation is fully local and deterministic. It demonstrates the architecture without requiring a paid LLM or embedding provider.
 
----
+## Why This Project Exists
 
-## Execution Roadmap
+Many RAG examples focus only on a short Python notebook. Enterprise systems usually need more: a backend API, document lifecycle, persistence, service boundaries, validation, health checks, tests, infrastructure, and a usable demonstration flow.
 
-### v0.1 - Portfolio Ready
+This repository provides a readable multi-service foundation that can be studied, extended, and adapted for internal knowledge bases, policy assistants, contract search, HR portals, and other document-heavy business applications.
 
-- [x] Clear README
-- [x] Architecture diagram
-- [x] Runnable local demo
-- [x] MIT license
-- [x] Contributing guide
-- [x] Code of conduct
-- [x] Issue templates
-- [x] Pull request template
-- [x] Release notes draft
+## Quick Start
 
-### v0.2 - Usable MVP
+### Requirements
 
-- [x] Simple Web UI
-- [x] Document upload screen
-- [x] Document list screen
-- [x] Search screen
-- [x] Ask/chat screen
-- [x] Source chunk viewer
-- [x] PostgreSQL-backed document metadata repository
-- [x] More integration tests
+- Docker Desktop or Docker Engine with Compose
+- Git
 
-### v1.0 - Production Portfolio Release
-
-- [ ] Authentication and role-based access control
-- [ ] Persistent vector storage
-- [ ] External or local LLM provider integration
-- [ ] OpenTelemetry observability foundation
-- [ ] Audit logging direction
-- [ ] Background indexing workflow
-- [ ] Health and diagnostics hardening
-- [ ] Docker Compose hardening
-- [ ] CI/CD quality gates
-- [ ] First stable release
-
----
-
-## Documentation and Demo Assets
-
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical architecture and service responsibilities
-- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md) — Mermaid architecture diagram
-- [`docs/PHASE_0_1_PLAN.md`](docs/PHASE_0_1_PLAN.md) — practical phase 0 and phase 1 execution plan
-- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup, Docker Compose run steps, persistence notes, tests, and troubleshooting
-- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — current health, upload, search, and ask endpoint examples
-- [`docs/RAG_ASK_ENDPOINT.md`](docs/RAG_ASK_ENDPOINT.md) — implementation plan and behavior for the RAG ask endpoint
-- [`docs/RELEASE_NOTES_v0.1.0.md`](docs/RELEASE_NOTES_v0.1.0.md) — release notes draft for the first milestone
-- [`scripts/demo_flow.py`](scripts/demo_flow.py) — runnable end-to-end local demo script
-- [`scripts/demo-flow.md`](scripts/demo-flow.md) — manual end-to-end local demo flow
-- [`docs/DEMO_SCENARIO.md`](docs/DEMO_SCENARIO.md) — client-facing business demo narrative
-- [`docs/SWAGGER_DEMO_NOTES.md`](docs/SWAGGER_DEMO_NOTES.md) — how to present the API through Swagger/OpenAPI
-- [`docs/HEALTH_AND_OBSERVABILITY.md`](docs/HEALTH_AND_OBSERVABILITY.md) — health, logging, metrics, and audit direction
-- [`samples/sample-policy.txt`](samples/sample-policy.txt) — sample document for upload and RAG demo flow
-- [`samples/hr-policy.txt`](samples/hr-policy.txt) — sample HR policy document
-- [`samples/contract-policy.txt`](samples/contract-policy.txt) — sample contract review policy document
-
----
-
-## Getting Started
+### Run the complete stack
 
 ```bash
+git clone https://github.com/mahdiaghtaee/enterprise-ai-document-assistant.git
+cd enterprise-ai-document-assistant
 docker compose up --build
 ```
 
-Open the Web UI:
+After startup:
 
-```text
-http://localhost:3000
-```
+| Service | Address |
+|---|---|
+| Web UI | `http://localhost:3000` |
+| Swagger / OpenAPI | `http://localhost:5000/swagger` |
+| ASP.NET Core health endpoint | `http://localhost:5000/health` |
 
-Open Swagger:
+Run the end-to-end demo:
 
-```text
-http://localhost:5000/swagger
+```bash
+python scripts/demo_flow.py
 ```
 
 Run the .NET integration tests:
@@ -148,13 +55,95 @@ Run the .NET integration tests:
 dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
 ```
 
-Run the end-to-end demo:
+## Architecture
 
-```bash
-python scripts/demo_flow.py
+```mermaid
+flowchart LR
+    U[Web UI / API Client] --> A[ASP.NET Core API]
+    A --> P[(PostgreSQL)]
+    A --> R[(Redis)]
+    A --> F[Python FastAPI AI Service]
+    F --> X[Text Extraction]
+    X --> C[Chunking]
+    C --> E[Local Embeddings]
+    E --> S[Semantic Search]
+    S --> Q[RAG-style Answer Builder]
+    Q --> A
 ```
 
----
+The .NET API coordinates document metadata and public endpoints. The Python service handles text processing, chunking, local embedding generation, retrieval, and deterministic answer construction. PostgreSQL stores document metadata, while Redis provides infrastructure for future caching and background workflows.
+
+Detailed architecture documentation:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md)
+- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md)
+
+## Implemented Features
+
+- Simple Web UI for health checks, uploads, document listing, search, questions, and source inspection
+- ASP.NET Core REST API with Swagger/OpenAPI
+- Python FastAPI document-processing service
+- PostgreSQL-backed document metadata repository
+- Text extraction and configurable chunking flow
+- Deterministic local embedding generation
+- In-memory semantic index and document search
+- RAG-style ask endpoint with source attribution
+- Docker Compose development environment
+- Redis infrastructure service
+- Health-check endpoints and structured service boundaries
+- Runnable end-to-end demo script
+- Sample HR, contract, and business-policy documents
+- API integration tests
+- GitHub Actions CI
+- Contribution guide, issue templates, and MIT license
+
+## Example Use Cases
+
+- Internal policy and procedure assistant
+- HR handbook search
+- Contract and compliance document exploration
+- Customer-support knowledge base
+- Technical documentation assistant
+- Private enterprise knowledge portal
+- Reference architecture for .NET and Python AI integration
+
+## Current Scope
+
+The current answer path is intentionally deterministic and local. No external LLM provider is required. This makes the repository easy to run, inspect, test, and extend.
+
+The next production-oriented milestones are:
+
+- Authentication and role-based access control
+- Persistent vector storage such as PostgreSQL with pgvector
+- External or local LLM provider abstraction
+- Background document-indexing workflow
+- OpenTelemetry tracing and metrics
+- Audit logging
+- Docker and deployment hardening
+- Additional validation, resilience, and CI quality gates
+
+## Repository Structure
+
+| Area | Responsibility |
+|---|---|
+| ASP.NET Core API | Public endpoints, orchestration, metadata persistence |
+| Python FastAPI service | Extraction, chunking, embeddings, retrieval, answer generation |
+| PostgreSQL | Document metadata and future vector persistence |
+| Redis | Cache and background-processing foundation |
+| Web UI | Demonstration interface for the complete workflow |
+| `scripts/` | Automated and manual end-to-end demo flows |
+| `samples/` | Uploadable business documents |
+| `docs/` | Architecture, API examples, operations, and roadmap |
+
+## Documentation
+
+- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — request and response examples
+- [`docs/RAG_ASK_ENDPOINT.md`](docs/RAG_ASK_ENDPOINT.md) — ask-flow behavior and implementation notes
+- [`docs/DEMO_SCENARIO.md`](docs/DEMO_SCENARIO.md) — business-focused demonstration narrative
+- [`docs/SWAGGER_DEMO_NOTES.md`](docs/SWAGGER_DEMO_NOTES.md) — Swagger presentation guide
+- [`docs/HEALTH_AND_OBSERVABILITY.md`](docs/HEALTH_AND_OBSERVABILITY.md) — health, logging, metrics, and audit direction
+- [`docs/RELEASE_NOTES_v0.1.0.md`](docs/RELEASE_NOTES_v0.1.0.md) — initial milestone notes
 
 ## Technology Stack
 
@@ -162,18 +151,29 @@ python scripts/demo_flow.py
 |---|---|
 | Web UI | HTML, CSS, JavaScript, Nginx |
 | Backend API | ASP.NET Core |
-| AI Service | Python, FastAPI |
+| AI service | Python, FastAPI |
 | Database | PostgreSQL, Npgsql |
-| Cache / Background Infrastructure | Redis |
-| API Documentation | Swagger / OpenAPI |
-| Local Environment | Docker Compose |
-| Tests | xUnit, ASP.NET Core integration testing |
-| CI | GitHub Actions |
-| AI Architecture | RAG, Semantic Search, Document Indexing |
+| Cache / infrastructure | Redis |
+| API documentation | Swagger / OpenAPI |
+| Local environment | Docker Compose |
+| Tests | xUnit and ASP.NET Core integration testing |
+| AI architecture | RAG, semantic search, document indexing |
 
----
+## Contributing
+
+Contributions are welcome. Good starting points include documentation improvements, sample documents, validation, tests, Docker improvements, observability, and persistent vector storage.
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
+
+## Support the Project
+
+If this repository helps you learn or build a document assistant, consider starring it. Stars make the project easier for other .NET, Python, and enterprise AI developers to discover.
+
+## License
+
+Released under the [MIT License](LICENSE).
 
 ## Author
 
 **Mahdi Aghtaee**  
-Senior C#/.NET Developer focused on enterprise backend systems, AI-enabled applications, RAG architecture, SQL systems, and production-oriented software design.
+Senior C#/.NET developer focused on enterprise backend systems, AI-enabled applications, RAG architecture, SQL systems, and production-oriented software design.
