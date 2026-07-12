@@ -4,21 +4,26 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/mahdiaghtaee/enterprise-ai-document-assistant?style=social)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/stargazers)
 
-A practical, open-source reference implementation for building enterprise document assistants with **ASP.NET Core**, **Python FastAPI**, **PostgreSQL**, **Redis**, **Docker Compose**, semantic search, and Retrieval-Augmented Generation concepts.
+I built this project to explore how a document assistant can fit into a real enterprise backend rather than remain a standalone AI demo.
 
-The project demonstrates the complete document journey:
+It combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL**, **Redis**, and **Docker Compose** in a local-first document workflow:
 
 ```text
 Upload -> Extract -> Chunk -> Embed -> Search -> Ask -> Return grounded sources
 ```
 
-> The current implementation is fully local and deterministic. It demonstrates the architecture without requiring a paid LLM or embedding provider.
+The current implementation uses deterministic local embeddings and a deterministic answer path. It can be run and tested without a paid AI provider, while leaving clear extension points for pgvector, background indexing, authentication, observability, and external or local language models.
 
-## Why This Project Exists
+- [Read the engineering case study](docs/CASE_STUDY.md)
+- [Review the architecture](docs/ARCHITECTURE.md)
+- [See the first architecture decision](docs/adr/0001-local-first-document-intelligence.md)
+- [Review the security scope](SECURITY.md)
 
-Many RAG examples focus only on a short Python notebook. Enterprise systems usually need more: a backend API, document lifecycle, persistence, service boundaries, validation, health checks, tests, infrastructure, and a usable demonstration flow.
+## Why I Built It
 
-This repository provides a readable multi-service foundation that can be studied, extended, and adapted for internal knowledge bases, policy assistants, contract search, HR portals, and other document-heavy business applications.
+A useful internal document assistant needs more than a chat endpoint. It needs document lifecycle management, persistence, service boundaries, validation, health checks, testable contracts, source attribution, and a development environment that another engineer can reproduce.
+
+This repository is my working reference for those concerns. It is suitable for studying or extending into internal policy search, HR knowledge bases, contract exploration, support documentation, and private document Q&A systems.
 
 ## Quick Start
 
@@ -71,32 +76,34 @@ flowchart LR
     Q --> A
 ```
 
-The .NET API coordinates document metadata and public endpoints. The Python service handles text processing, chunking, local embedding generation, retrieval, and deterministic answer construction. PostgreSQL stores document metadata, while Redis provides infrastructure for future caching and background workflows.
+The .NET API coordinates document metadata and public endpoints. The Python service handles text processing, chunking, local embedding generation, retrieval, and deterministic answer construction. PostgreSQL stores document metadata. Redis is included as infrastructure for future caching and background workflows.
 
-Detailed architecture documentation:
+Detailed documentation:
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md)
-- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md)
+- [`docs/CASE_STUDY.md`](docs/CASE_STUDY.md) — problem, approach, trade-offs, and interview discussion points
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — service responsibilities and request flows
+- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md) — expanded architecture diagram
+- [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md) — local setup and troubleshooting
+- [`docs/adr/0001-local-first-document-intelligence.md`](docs/adr/0001-local-first-document-intelligence.md) — local-first pipeline decision
 
 ## Implemented Features
 
-- Simple Web UI for health checks, uploads, document listing, search, questions, and source inspection
+- Web UI for health checks, uploads, document listing, search, questions, and source inspection
 - ASP.NET Core REST API with Swagger/OpenAPI
 - Python FastAPI document-processing service
 - PostgreSQL-backed document metadata repository
-- Text extraction and configurable chunking flow
+- Text extraction and chunking flow
 - Deterministic local embedding generation
 - In-memory semantic index and document search
 - RAG-style ask endpoint with source attribution
 - Docker Compose development environment
 - Redis infrastructure service
-- Health-check endpoints and structured service boundaries
+- Health-check endpoints and explicit service boundaries
 - Runnable end-to-end demo script
 - Sample HR, contract, and business-policy documents
 - API integration tests
 - GitHub Actions CI
-- Contribution guide, issue templates, and MIT license
+- Contribution guide, security policy, issue templates, and MIT license
 
 ## Example Use Cases
 
@@ -108,20 +115,25 @@ Detailed architecture documentation:
 - Private enterprise knowledge portal
 - Reference architecture for .NET and Python AI integration
 
-## Current Scope
+## Current Limitations
 
-The current answer path is intentionally deterministic and local. No external LLM provider is required. This makes the repository easy to run, inspect, test, and extend.
+I keep the current limitations visible because they are important engineering decisions, not details to hide:
 
-The next production-oriented milestones are:
+- The vector index is currently in memory and is not durable across restarts.
+- Document processing is synchronous and should move to background workers for production workloads.
+- The project does not yet include authentication, authorization, or tenant isolation.
+- Docker Compose contains development-only credentials and exposed ports.
+- The deterministic answer path demonstrates retrieval and source attribution, not production LLM quality.
 
-- Authentication and role-based access control
-- Persistent vector storage such as PostgreSQL with pgvector
-- External or local LLM provider abstraction
-- Background document-indexing workflow
+The next production-oriented work includes:
+
+- PostgreSQL with pgvector for persistent vector storage
+- Background indexing with explicit states and retries
+- Authentication, role-based authorization, and workspace isolation
+- External and local LLM provider abstractions
 - OpenTelemetry tracing and metrics
-- Audit logging
-- Docker and deployment hardening
-- Additional validation, resilience, and CI quality gates
+- Audit logging and document-access events
+- Deployment and secret-management hardening
 
 ## Repository Structure
 
@@ -134,9 +146,9 @@ The next production-oriented milestones are:
 | Web UI | Demonstration interface for the complete workflow |
 | `scripts/` | Automated and manual end-to-end demo flows |
 | `samples/` | Uploadable business documents |
-| `docs/` | Architecture, API examples, operations, and roadmap |
+| `docs/` | Architecture, decisions, API examples, operations, and roadmap |
 
-## Documentation
+## API and Demo Documentation
 
 - [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — request and response examples
 - [`docs/RAG_ASK_ENDPOINT.md`](docs/RAG_ASK_ENDPOINT.md) — ask-flow behavior and implementation notes
@@ -161,13 +173,9 @@ The next production-oriented milestones are:
 
 ## Contributing
 
-Contributions are welcome. Good starting points include documentation improvements, sample documents, validation, tests, Docker improvements, observability, and persistent vector storage.
+Contributions are welcome when they improve the project as an engineering reference. Useful areas include documentation, tests, validation, Docker improvements, observability, background processing, and persistent vector storage.
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
-
-## Support the Project
-
-If this repository helps you learn or build a document assistant, consider starring it. Stars make the project easier for other .NET, Python, and enterprise AI developers to discover.
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request. Security-sensitive findings should follow [`SECURITY.md`](SECURITY.md).
 
 ## License
 
@@ -177,3 +185,5 @@ Released under the [MIT License](LICENSE).
 
 **Mahdi Aghtaee**  
 Senior C#/.NET developer focused on enterprise backend systems, AI-enabled applications, RAG architecture, SQL systems, and production-oriented software design.
+
+If the architecture or documentation is useful to you, a star helps other engineers find the project.
