@@ -18,6 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Ruff linting and formatting checks for Python code.
 - Runtime Docker Compose checks for the ASP.NET Core and FastAPI health endpoints.
 - Cobertura-format .NET coverage collection and retained CI artifacts.
+- CI coverage floors of 60% line coverage and 50% branch coverage.
 
 ### Changed
 
