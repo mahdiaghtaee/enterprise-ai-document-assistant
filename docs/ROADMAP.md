@@ -1,68 +1,117 @@
 # Roadmap
 
-This roadmap keeps the project focused on a realistic freelance-ready product: a secure internal document assistant that can be deployed, demonstrated, and extended for client needs.
+This roadmap separates completed capabilities from planned work. A milestone is marked complete only when its implementation, tests, and documentation are present in the repository.
 
-## Milestone 1 — Working Local Demo
+## Completed Foundation
 
-Goal: make the project easy to run and understand in less than five minutes.
+- Docker Compose environment for the API, Web UI, FastAPI service, PostgreSQL, and Redis
+- ASP.NET Core health endpoint and Swagger/OpenAPI
+- FastAPI health and indexing-boundary endpoints
+- local document storage
+- PostgreSQL-backed document metadata
+- plain-text extraction
+- fixed-size chunking with overlap
+- deterministic local embeddings
+- in-memory semantic index with similarity ranking
+- semantic search endpoint
+- deterministic source-aware ask endpoint
+- sample documents and end-to-end demo script
+- .NET integration tests and CI image builds
 
-- Keep Docker Compose as the default local setup
-- Validate health checks for the .NET API and Python AI service
-- Keep Swagger enabled for API exploration
-- Add a small sample upload flow
-- Document the system boundaries clearly
+## Milestone 1 — Persistent Semantic Index
 
-## Milestone 2 — Persistent Document Metadata
+Goal: preserve indexed chunks across process restarts and use PostgreSQL vector similarity when configured.
 
-Goal: replace the in-memory repository with real persistence.
+Tracked by [issue #41](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/41).
 
-- Add PostgreSQL database access
-- Create document metadata model
-- Add migrations
-- Store uploaded document metadata
-- Keep local file storage for the first version
+Planned work:
 
-## Milestone 3 — Document Processing Pipeline
+- enable the PostgreSQL `vector` extension;
+- add a migration for document chunks and embeddings;
+- implement a pgvector-backed `ISemanticIndexStore`;
+- keep the in-memory provider for isolated tests;
+- select the active provider through configuration;
+- add integration tests for persistence, ranking, dimensions, and document isolation;
+- document migration and troubleshooting.
 
-Goal: move from upload-only to useful document indexing.
+## Milestone 2 — Reliable Background Indexing
 
-- Extract text from PDF and text files
-- Split documents into chunks
-- Store chunks with document references
-- Add indexing status to the document model
-- Add a background worker for indexing jobs
+Goal: remove document processing from the synchronous upload request.
 
-## Milestone 4 — Semantic Search and RAG
+Planned work:
 
-Goal: allow users to ask questions and receive grounded answers.
+- persist indexing jobs and processing states;
+- return a document identifier and status from upload;
+- process jobs with a background worker;
+- make chunk writes idempotent;
+- add bounded retries and a dead-letter path;
+- expose processing status and failure details;
+- add restart and duplicate-delivery tests.
 
-- Add embeddings
-- Store vectors with pgvector or a compatible vector store
-- Add semantic search endpoint
-- Add question-answer endpoint
-- Return source references with every answer
+Redis may be used for coordination only after the job model and persistence requirements are clear.
 
-## Milestone 5 — Product Readiness
+## Milestone 3 — Identity and Document Authorization
 
-Goal: make the project presentable to clients.
+Goal: prevent unauthorized document access.
 
-- Add JWT authentication
-- Add role-based access
-- Add integration tests
-- Add GitHub Actions workflow
-- Add deployment notes
-- Add screenshots and a short demo video
+Planned work:
 
-## Not in Scope Yet
+- authentication;
+- role-based authorization;
+- workspace or tenant isolation;
+- document ownership and access policies;
+- authorization checks on upload, list, search, ask, and source retrieval;
+- audit events for document access and administrative changes;
+- negative security tests.
 
-These features are useful but should not be added before the core workflow is stable:
+## Milestone 4 — Provider Integrations
 
-- Multi-tenant billing
-- Complex admin dashboard
-- Advanced document permissions
-- Cloud deployment automation
-- OCR for scanned documents
+Goal: introduce real embedding and language-model providers without coupling public contracts to a vendor.
 
-## Positioning
+Planned work:
 
-This project should communicate one clear message: practical backend and AI engineering for businesses that need document automation, internal search, and knowledge assistant tools.
+- provider interfaces and configuration;
+- one local provider and one external provider;
+- deterministic fake providers for tests;
+- timeout, retry, cancellation, and error mapping;
+- cost and token-usage metadata where applicable;
+- a retrieval evaluation dataset before provider selection.
+
+Python-specific processing should move to the FastAPI service only when a concrete library or deployment requirement justifies the additional service complexity.
+
+## Milestone 5 — Observability and Operations
+
+Goal: make failures diagnosable and deployments maintainable.
+
+Planned work:
+
+- structured logs with correlation identifiers;
+- OpenTelemetry traces across HTTP, database, and background processing;
+- metrics for uploads, indexing duration, failures, and retrieval latency;
+- readiness and dependency health checks;
+- backup and restore documentation;
+- retention and deletion workflows;
+- deployment profiles with secret management and restricted ports.
+
+## Milestone 6 — Document Format Expansion
+
+Goal: support additional formats safely.
+
+Planned work:
+
+- PDF text extraction;
+- optional OCR for scanned documents;
+- file-signature validation rather than extension-only checks;
+- malware-scanning integration point;
+- size, page-count, and extraction-time limits;
+- format-specific test fixtures and failure cases.
+
+## Explicitly Deferred
+
+The following work is deferred until persistence, security, and operational foundations are complete:
+
+- multi-tenant billing;
+- complex administration dashboards;
+- autonomous agents;
+- provider-specific optimizations without measured need;
+- unsupported claims about production accuracy or scale.

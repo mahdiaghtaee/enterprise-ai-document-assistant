@@ -1,20 +1,14 @@
 # Local Development Guide
 
-This guide helps contributors and reviewers run the complete project locally and understand which settings are safe to customize.
+This guide covers local setup, verification, and troubleshooting for the current implementation.
 
 ## Prerequisites
 
-For the Docker Compose workflow, install:
-
-- Docker Desktop or Docker Engine
-- Docker Compose
-- Git
-
-The .NET SDK and Python 3.11 or later are only required when running tests or scripts directly on the host machine.
+For the Docker Compose workflow, install Docker, Docker Compose v2, and Git. The .NET 8 SDK and Python 3.11 or later are required only when running tests or scripts directly on the host.
 
 ## Environment Setup
 
-Docker Compose includes development defaults, so the stack can start without a local `.env` file. Copy the example file when you need to change host ports or PostgreSQL development credentials.
+Docker Compose includes development defaults, so the stack can start without `.env`. Copy the example file when you need to change host ports or PostgreSQL development credentials.
 
 Linux or macOS:
 
@@ -28,23 +22,21 @@ Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-The available settings are:
-
 | Variable | Default | Purpose |
 |---|---:|---|
-| `WEB_UI_HOST_PORT` | `3000` | Web UI port exposed on the host |
-| `API_HOST_PORT` | `5000` | ASP.NET Core API port exposed on the host |
-| `AI_SERVICE_HOST_PORT` | `8000` | FastAPI service port exposed on the host |
-| `POSTGRES_HOST_PORT` | `5432` | PostgreSQL port exposed on the host |
-| `REDIS_HOST_PORT` | `6379` | Redis port exposed on the host |
-| `ASPNETCORE_ENVIRONMENT` | `Development` | ASP.NET Core runtime environment |
-| `POSTGRES_DB` | `documents` | Local PostgreSQL database name |
-| `POSTGRES_USER` | `documents` | Local PostgreSQL user |
-| `POSTGRES_PASSWORD` | `documents` | Local PostgreSQL password |
+| `WEB_UI_HOST_PORT` | `3000` | Web UI host port |
+| `API_HOST_PORT` | `5000` | ASP.NET Core API host port |
+| `AI_SERVICE_HOST_PORT` | `8000` | FastAPI host port |
+| `POSTGRES_HOST_PORT` | `5432` | PostgreSQL host port |
+| `REDIS_HOST_PORT` | `6379` | Redis host port |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | ASP.NET Core environment |
+| `POSTGRES_DB` | `documents` | Local database name |
+| `POSTGRES_USER` | `documents` | Local database user |
+| `POSTGRES_PASSWORD` | `documents` | Local database password |
 
-These values are intended only for local development. Do not reuse the example password or expose the database and Redis ports in a public deployment.
+These values are for local development only.
 
-## Run with Docker Compose
+## Start the Stack
 
 ```bash
 docker compose up --build
@@ -54,146 +46,90 @@ Expected services:
 
 - Web UI
 - ASP.NET Core API
-- Python FastAPI AI service
+- Python FastAPI service
 - PostgreSQL
 - Redis
 
-PostgreSQL initializes the `documents` table from:
+Document metadata is persisted in PostgreSQL. Semantic-index records are kept in API memory and are lost when the API process restarts.
 
-```text
-infra/postgres/init/001_documents.sql
-```
-
-Uploaded document metadata is stored in PostgreSQL and remains available after the API container restarts.
-
-## Local URLs
-
-With the default `.env.example` values:
+## Default Local URLs
 
 | Service | URL |
 |---|---|
 | Web UI | `http://localhost:3000` |
-| ASP.NET Core API | `http://localhost:5000` |
 | Swagger UI | `http://localhost:5000/swagger` |
-| Python AI service | `http://localhost:8000` |
+| ASP.NET Core health | `http://localhost:5000/health` |
+| FastAPI health | `http://localhost:8000/health` |
 | PostgreSQL | `localhost:5432` |
 | Redis | `localhost:6379` |
 
-When a `*_HOST_PORT` value changes, use the corresponding configured port instead.
+Use the configured port when a `*_HOST_PORT` value changes.
 
-## Validate the API
+## Verify the Services
 
 ```bash
 curl http://localhost:5000/health
+curl http://localhost:8000/health
 ```
 
-Open Swagger:
+## Current Processing Boundary
 
-```text
-http://localhost:5000/swagger
+The ASP.NET Core API currently performs upload validation, local storage, metadata persistence, plain-text extraction, chunking, deterministic embedding generation, semantic search, and deterministic source-aware answer construction.
+
+The FastAPI service currently exposes health and placeholder indexing-boundary endpoints. It does not yet perform extraction, embeddings, retrieval, or answer generation.
+
+## Run the Demo
+
+```bash
+python scripts/demo_flow.py
 ```
-
-Replace `5000` when `API_HOST_PORT` has been customized.
-
-## Validate the Web UI
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-Use the UI to:
-
-1. Check API health.
-2. Upload a sample text file.
-3. Refresh the persistent document list.
-4. Run semantic search.
-5. Ask a grounded question.
-6. Open a returned source in the source viewer.
 
 ## Run the .NET Tests
 
 ```bash
-dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj --configuration Release
 ```
 
-The integration tests use the in-memory document repository so they remain isolated from the local PostgreSQL container.
+The automated tests do not require an external AI provider.
 
-## Suggested Manual Demo
+## Manual Verification
 
-1. Start the services with Docker Compose.
+1. Start the stack.
 2. Open the Web UI.
-3. Check the API health status.
+3. Check both health endpoints.
 4. Upload `samples/contract-policy.txt`.
 5. Refresh the document list.
 6. Search for `vendor contract approval process`.
 7. Ask `Who needs to approve vendor contracts?`.
-8. Select a returned source and inspect the exact chunk.
-9. Restart the API container and confirm that the document metadata remains in the list.
+8. Inspect the returned source chunk.
+9. Restart the API container and confirm that metadata remains while the in-memory semantic index is cleared.
 
 ## Troubleshooting
 
 ### A host port is already in use
 
-Change the relevant value in `.env`. For example:
-
-```dotenv
-API_HOST_PORT=5050
-POSTGRES_HOST_PORT=55432
-```
-
-Then restart the stack:
-
-```bash
-docker compose down
-docker compose up --build
-```
+Change the relevant value in `.env` and restart the stack.
 
 ### PostgreSQL settings changed after the first startup
 
-PostgreSQL initialization scripts and initial credentials are applied when the data volume is first created. Changing `POSTGRES_DB`, `POSTGRES_USER`, or `POSTGRES_PASSWORD` does not rewrite an existing volume.
+Initial database settings are applied when the data volume is first created. Recreate only disposable local data when you need the initialization scripts to run again.
 
-For disposable local data, recreate the volume:
+### The API cannot reach PostgreSQL
 
-```bash
-docker compose down -v
-docker compose up --build
-```
+Check container status and logs. The connection string must use the Compose service name `postgres`, not `localhost`.
 
-This command permanently deletes the local PostgreSQL data stored in the Compose volume.
+### The API cannot reach the FastAPI service
 
-### AI service is not reachable
-
-Check container status and logs:
-
-```bash
-docker compose ps
-docker compose logs ai-service
-```
-
-The API communicates with the AI service through the internal Compose address `http://ai-service:8000`; changing `AI_SERVICE_HOST_PORT` only changes host access.
+Check the `ai-service` logs. The API uses the internal address `http://ai-service:8000`; changing `AI_SERVICE_HOST_PORT` affects host access only.
 
 ### File upload fails
 
-Check the API logs and verify that the selected file type and size are supported:
+Check API logs and verify that the content type and size are supported. Unsupported formats should fail clearly rather than being presented as indexed.
 
-```bash
-docker compose logs document-api
-```
+### Search returns no results after an API restart
 
-### Browser cannot reach the API
+This is expected because the semantic index is in memory. Re-upload the document or implement the pgvector milestone tracked in issue #41.
 
-Confirm that the API health endpoint responds and that the Web UI is using the expected default API host port. When `API_HOST_PORT` is changed, the current static Web UI configuration may also need to be updated.
+### The browser cannot reach the API
 
-## Reviewer Checklist
-
-A reviewer should be able to answer:
-
-- What business problem does this project solve?
-- What services are included in the architecture?
-- How does the document upload flow work?
-- Where is document metadata persisted?
-- How do semantic search and RAG-style answers work?
-- Which local settings are configurable?
-- What parts are implemented and what production controls remain planned?
+Confirm that the API health endpoint responds. When `API_HOST_PORT` changes, the current static Web UI configuration may also require an update.
