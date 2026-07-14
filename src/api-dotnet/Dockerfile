@@ -7,7 +7,7 @@ RUN dotnet restore ./api-dotnet/EnterpriseDocumentAssistant.Api.csproj
 COPY src/api-dotnet/ ./api-dotnet/
 RUN dotnet publish ./api-dotnet/EnterpriseDocumentAssistant.Api.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
