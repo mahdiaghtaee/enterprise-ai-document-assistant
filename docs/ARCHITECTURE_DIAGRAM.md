@@ -1,62 +1,74 @@
 # Architecture Diagram
 
-This diagram shows the intended system shape for the current portfolio-ready version of Enterprise AI Document Assistant.
+The diagram below distinguishes current executable responsibilities from planned extensions.
 
 ```mermaid
 flowchart TD
-    User[User / Reviewer]
-    Browser[Web UI / API Client]
+    User[User / API Client]
+    Web[Web UI]
     Api[ASP.NET Core API]
-    Ai[Python FastAPI AI Service]
-    Db[(PostgreSQL)]
-    Redis[(Redis)]
-    Storage[Local Document Storage]
-    Index[Semantic Index]
+    Db[(PostgreSQL metadata)]
+    Redis[(Redis - future use)]
+    Storage[Local document storage]
+    Extract[Plain-text extraction]
+    Chunk[Fixed-size chunking]
+    Embed[Deterministic embeddings]
+    Index[In-memory semantic index]
+    Answer[Source-aware answer builder]
+    Ai[FastAPI service boundary]
 
-    User --> Browser
-    Browser --> Api
+    User --> Web
+    Web --> Api
+    User --> Api
+
     Api --> Storage
     Api --> Db
     Api --> Redis
+    Api --> Extract
+    Extract --> Chunk
+    Chunk --> Embed
+    Embed --> Index
+    Index --> Answer
     Api --> Ai
-    Api --> Index
-    Ai --> Api
-
-    subgraph Document Flow
-        Upload[Upload Document]
-        Extract[Extract Text]
-        Chunk[Chunk Text]
-        Embed[Generate Embeddings]
-        Search[Semantic Search]
-        Ask[Ask Question]
-        Answer[Answer with Sources]
-    end
-
-    Upload --> Extract --> Chunk --> Embed --> Search --> Ask --> Answer
 ```
 
 ## Current Implementation
 
-The current implementation already covers:
+### ASP.NET Core API
 
-- ASP.NET Core API
-- Python FastAPI service
-- Docker Compose environment
-- Document upload flow
-- Text extraction and chunking
-- Deterministic local embeddings
-- In-memory semantic index
-- Search endpoint
-- Ask endpoint with source matches
+- upload validation and local storage;
+- PostgreSQL-backed document metadata;
+- plain-text extraction and chunking;
+- deterministic embedding generation;
+- in-memory semantic indexing and ranking;
+- search and source-aware ask endpoints;
+- HTTP call to the FastAPI indexing boundary.
 
-## Planned Implementation
+### FastAPI Service
 
-The next practical improvements are:
+- health endpoint;
+- placeholder indexing endpoint returning a queued status.
 
-- Web UI
-- PostgreSQL-backed metadata repository
-- Persistent vector storage
-- Real embedding provider abstraction
-- Authentication
-- Background indexing
-- Observability
+The FastAPI service does not currently perform extraction, embeddings, retrieval, or answer generation.
+
+### Infrastructure
+
+- PostgreSQL is actively used for document metadata;
+- Redis is present but not yet used by the workflow;
+- Docker Compose starts the Web UI, API, FastAPI service, PostgreSQL, and Redis.
+
+## Planned Extensions
+
+```mermaid
+flowchart LR
+    Upload[Upload] --> Jobs[(Persistent indexing jobs)]
+    Jobs --> Worker[Background worker]
+    Worker --> Parser[Document parser / OCR]
+    Parser --> Provider[Embedding provider]
+    Provider --> Pg[(PostgreSQL + pgvector)]
+    Pg --> Retrieve[Semantic retrieval]
+    Retrieve --> Model[Local or external model provider]
+    Model --> Grounded[Answer with sources]
+```
+
+Planned work includes pgvector persistence, background processing, access control, provider integrations, audit events, and observability. See [ROADMAP.md](ROADMAP.md).
