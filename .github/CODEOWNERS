@@ -1,0 +1,8 @@
+# Default owner for all files.
+* @mahdiaghtaee
+
+# Security-sensitive and automation files.
+/.github/ @mahdiaghtaee
+/SECURITY.md @mahdiaghtaee
+/docker-compose.yml @mahdiaghtaee
+/infra/ @mahdiaghtaee
