@@ -47,10 +47,12 @@ Expected services:
 - Web UI
 - ASP.NET Core API
 - Python FastAPI service
-- PostgreSQL
+- PostgreSQL with the pgvector extension available
 - Redis
 
-Document metadata is persisted in PostgreSQL. Semantic-index records are kept in API memory and are lost when the API process restarts.
+Fresh PostgreSQL volumes enable the `vector` extension and create the `document_chunks` table with a fixed `vector(16)` embedding column and an HNSW cosine-distance index. The application still uses the in-memory semantic-index provider until the PostgreSQL provider is implemented.
+
+Document metadata is persisted in PostgreSQL. Semantic-index records used by the current API are kept in API memory and are lost when the API process restarts.
 
 ## Default Local URLs
 
@@ -70,7 +72,11 @@ Use the configured port when a `*_HOST_PORT` value changes.
 ```bash
 curl http://localhost:5000/health
 curl http://localhost:8000/health
+docker compose exec -T postgres psql -U documents -d documents -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+docker compose exec -T postgres psql -U documents -d documents -c "\d+ document_chunks"
 ```
+
+More details are in [PGVECTOR_SCHEMA.md](PGVECTOR_SCHEMA.md).
 
 ## Current Processing Boundary
 
@@ -96,13 +102,13 @@ The automated tests do not require an external AI provider.
 
 1. Start the stack.
 2. Open the Web UI.
-3. Check both health endpoints.
+3. Check both health endpoints and the pgvector schema commands above.
 4. Upload `samples/contract-policy.txt`.
 5. Refresh the document list.
 6. Search for `vendor contract approval process`.
 7. Ask `Who needs to approve vendor contracts?`.
 8. Inspect the returned source chunk.
-9. Restart the API container and confirm that metadata remains while the in-memory semantic index is cleared.
+9. Restart the API container and confirm that metadata and the database schema remain while the active in-memory semantic index is cleared.
 
 ## Troubleshooting
 
@@ -110,9 +116,18 @@ The automated tests do not require an external AI provider.
 
 Change the relevant value in `.env` and restart the stack.
 
-### PostgreSQL settings changed after the first startup
+### PostgreSQL settings or initialization scripts changed after the first startup
 
-Initial database settings are applied when the data volume is first created. Recreate only disposable local data when you need the initialization scripts to run again.
+PostgreSQL initialization scripts run only when the data volume is first created. Switching to the pgvector image does not automatically apply the new schema to an existing volume.
+
+For disposable local data:
+
+```bash
+docker compose down --volumes
+docker compose up --build
+```
+
+Do not remove a volume that contains data you need. Back it up and apply `infra/postgres/init/zz-pgvector-schema.sql` through `psql` instead.
 
 ### The API cannot reach PostgreSQL
 
@@ -128,7 +143,7 @@ Check API logs and verify that the content type and size are supported. Unsuppor
 
 ### Search returns no results after an API restart
 
-This is expected because the semantic index is in memory. Re-upload the document or implement the pgvector milestone tracked in issue #41.
+This remains expected until the PostgreSQL-backed `ISemanticIndexStore` provider is implemented. The database schema exists, but the active application provider is still in memory.
 
 ### The browser cannot reach the API
 
