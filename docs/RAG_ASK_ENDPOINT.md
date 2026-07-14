@@ -1,14 +1,6 @@
-# RAG Ask Endpoint Implementation Plan
+# Source-aware Ask Endpoint
 
-## Goal
-
-Add the first portfolio-ready version of a RAG ask endpoint to the ASP.NET Core API.
-
-The endpoint should answer a user question using indexed document chunks and return the source chunks that supported the answer.
-
-This first version should stay deterministic and local. It should not require an external LLM provider yet. That keeps the feature easy to run, review, and demonstrate from a clean checkout.
-
----
+The first ask endpoint is deterministic and local. It retrieves indexed chunks and returns source context without calling an external language model.
 
 ## Endpoint
 
@@ -25,12 +17,14 @@ POST /api/documents/ask
 }
 ```
 
-## Response
+`topK` is optional and defaults to `3`.
+
+## Response Shape
 
 ```json
 {
   "question": "What is the remote work policy?",
-  "answer": "Based on the indexed documents, the most relevant information is...",
+  "answer": "Based on the indexed documents, the most relevant source is from sample-policy.txt: \"...\"",
   "sourceCount": 3,
   "sources": [
     {
@@ -44,93 +38,47 @@ POST /api/documents/ask
 }
 ```
 
----
+The exact answer text is constructed deterministically from the highest-ranked source. It demonstrates retrieval and attribution; it is not production language-model output.
 
-## Implementation Steps
+## Current Processing Flow
 
-### 1. Add request and response models
+1. Validate the question and `topK`.
+2. Generate a deterministic query embedding with `IEmbeddingGenerator`.
+3. Search the in-memory `ISemanticIndexStore`.
+4. Map ranked records to source objects.
+5. Return a deterministic answer based on the best source and include all selected source records.
 
-Create models for:
+This flow currently runs in the ASP.NET Core API. The FastAPI service is not involved in search or answer construction.
 
-- `DocumentAskRequest`
-- `DocumentAskResponse`
-- `DocumentAskSource`
+## Validation
 
-The request should contain:
+- empty or whitespace-only questions return `400 Bad Request`;
+- `topK <= 0` returns `400 Bad Request`;
+- a missing `topK` value defaults to `3`.
 
-- `Question`
-- `TopK`
+## No-context Behavior
 
-The response should contain:
-
-- `Question`
-- `Answer`
-- `SourceCount`
-- `Sources`
-
----
-
-### 2. Reuse the semantic search pipeline
-
-The existing upload and search flow already creates chunks, generates deterministic embeddings, and stores vectors in the in-memory semantic index.
-
-The ask endpoint should reuse:
-
-- `IEmbeddingGenerator`
-- `ISemanticIndexStore`
-- `SemanticSearchRequest`
-
-This keeps the first implementation small and aligned with the current architecture.
-
----
-
-### 3. Generate a deterministic grounded answer
-
-For v0.1, the answer should be generated from the retrieved chunks without calling an external model.
-
-Suggested behavior:
-
-- If no source chunks are found, return a clear fallback answer.
-- If chunks are found, return a concise answer that explains it is based on the retrieved document context.
-- Include the source chunks so a reviewer can verify the answer.
-
-Example fallback:
+When no source chunks are available, the endpoint returns:
 
 ```text
 I could not find enough indexed document context to answer this question. Upload and index a relevant document first, then try again.
 ```
 
----
+## Limitations
 
-## Validation Rules
+- the semantic index is in memory and is cleared when the API restarts;
+- the answer is extractive and deterministic;
+- there is no model-provider call, reranking, citation verification, or answer-quality evaluation;
+- document-level authorization is not implemented.
 
-- Empty or whitespace-only question returns `400 Bad Request`.
-- `topK <= 0` returns `400 Bad Request`.
-- If `topK` is not provided, default to `3`.
+## Planned Evolution
 
----
+A production-oriented version should:
 
-## Definition of Done
-
-- `/api/documents/ask` endpoint exists.
-- Endpoint validates invalid input.
-- Endpoint returns a deterministic answer.
-- Endpoint returns source chunks with scores.
-- README or API examples mention the endpoint.
-- The feature works after running:
-
-```bash
-docker compose up --build
-```
-
----
-
-## Portfolio Value
-
-This feature turns the project from document upload and semantic search into a visible RAG assistant workflow.
-
-It also makes the repository easier to explain in interviews, freelance proposals, and technical reviews because it demonstrates the full path:
-
-```text
-Upload document -> Extract text -> Chunk -> Embed -> Search -> Ask -> Return grounded answer with sources
-```
+- retrieve from a durable pgvector store;
+- apply document authorization before retrieval;
+- support a provider abstraction for local or external models;
+- preserve source identifiers and relevant excerpts;
+- apply timeouts, cancellation, error mapping, and audit logging;
+- evaluate retrieval and answer quality against a representative dataset;
+- defend against prompt injection and unauthorized context disclosure.
