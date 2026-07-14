@@ -11,12 +11,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Configurable local ports and PostgreSQL development credentials through `.env`.
 - Expanded local-development and troubleshooting documentation.
 - Explicit documentation of the current .NET document pipeline and the FastAPI service boundary.
+- Dependabot update configuration for GitHub Actions, NuGet, pip, and Docker.
+- CodeQL analysis for C# and Python.
+- CODEOWNERS coverage for the repository and security-sensitive paths.
+- FastAPI endpoint tests for health, indexing responses, and request validation.
+- Ruff linting and formatting checks for Python code.
+- Runtime Docker Compose checks for the ASP.NET Core and FastAPI health endpoints.
 
 ### Changed
 
 - Clarified that extraction, chunking, deterministic embeddings, semantic retrieval, and answer construction currently run in the ASP.NET Core API.
 - Replaced the stale feature roadmap with implementation-based milestones.
 - Moved resume, interview, social-post, and repository-visibility notes out of the software repository.
+- Restricted GitHub Actions workflow permissions to read-only repository contents unless a workflow requires more.
+- Updated GitHub Actions to current Node 24-compatible major versions.
+- Split CI into independent .NET, Python, and container validation jobs.
 
 ## 0.1.0 - 2026-07-10
 
