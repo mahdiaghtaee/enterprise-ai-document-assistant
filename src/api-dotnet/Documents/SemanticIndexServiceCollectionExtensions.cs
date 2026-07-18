@@ -14,7 +14,7 @@ public static class SemanticIndexServiceCollectionExtensions
                 services.AddSingleton<ISemanticIndexStore, InMemorySemanticIndexStore>();
                 break;
             case "POSTGRES":
-                services.AddSingleton<ISemanticIndexStore, PostgresSemanticIndexStore>();
+                services.AddSingleton<ISemanticIndexStore>(_ => new PostgresSemanticIndexStore(configuration));
                 break;
             default:
                 throw new InvalidOperationException($"Unknown semantic index provider: {provider}");
