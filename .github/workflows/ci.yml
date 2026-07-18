@@ -143,7 +143,7 @@ jobs:
           }
 
           test "$(query_database "SELECT count(*) FROM pg_extension WHERE extname = 'vector';")" = "1"
-          test "$(query_database "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'document_chunks' AND a.attname = 'embedding' AND format_type(a.atttypid, a.atttypmod) = 'vector(16)';")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'document_chunks' AND a.attname = 'embedding' AND format_type(a.atttypid, a.atttypmod) = 'vector(8)';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_chunks' AND indexname = 'ix_document_chunks_embedding_cosine';")" = "1"
 
       - name: Show container status and logs on failure
