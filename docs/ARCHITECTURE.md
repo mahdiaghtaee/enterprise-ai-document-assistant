@@ -1,8 +1,8 @@
 # Architecture Overview
 
-Enterprise AI Document Assistant is a local-first reference system for document ingestion, deterministic semantic retrieval, and source-aware answers.
+Enterprise AI Document Assistant is a local-first reference system for document ingestion, persistent semantic retrieval, and source-aware answers.
 
-The repository contains two application services, but the current executable document pipeline runs in the ASP.NET Core API. The FastAPI service is presently a small HTTP boundary for future Python-specific document or model integrations.
+The repository contains ASP.NET Core and FastAPI services. The executable document pipeline runs in ASP.NET Core. FastAPI remains a small HTTP boundary for future Python-specific integrations.
 
 ## Current High-Level Flow
 
@@ -17,11 +17,13 @@ ASP.NET Core API
     |-- extract supported text locally
     |-- split text into chunks
     |-- generate deterministic embeddings
-    |-- index and search chunks in memory
+    |-- write and search chunks through ISemanticIndexStore
     |-- build deterministic source-aware answers
     |
-    +--> PostgreSQL
+    +--> PostgreSQL + pgvector
     |       - document metadata
+    |       - persistent chunks and embeddings
+    |       - cosine-distance retrieval
     |
     +--> Redis
     |       - available for future caching and job coordination
@@ -34,9 +36,9 @@ ASP.NET Core API
 
 ## Why Keep a Python Service Boundary?
 
-Python has a broad ecosystem for document parsing, embeddings, machine learning, and model providers. Keeping an explicit HTTP boundary makes it possible to introduce those capabilities later without changing the public API contract.
+Python has a broad ecosystem for document parsing, embeddings, machine learning, and model providers. The HTTP boundary allows those capabilities to be added later without changing the public API contract.
 
-The current implementation deliberately avoids pretending that the split is already complete. Extraction, chunking, deterministic embeddings, retrieval, and answer construction currently run in .NET. Moving a responsibility to Python should be justified by a concrete library, deployment, scaling, or ownership requirement.
+The current implementation does not pretend that this split is already complete. Extraction, chunking, deterministic embeddings, retrieval, and answer construction currently run in .NET.
 
 ## Components
 
@@ -47,20 +49,21 @@ Current responsibilities:
 - public REST endpoints and Swagger/OpenAPI
 - upload validation and local file storage
 - PostgreSQL-backed document metadata
-- plain-text extraction
-- fixed-size chunking
+- plain-text extraction and fixed-size chunking
 - deterministic embedding generation
-- in-memory semantic indexing and similarity search
+- configurable semantic-index provider selection
+- PostgreSQL/pgvector persistence and similarity search in Docker Compose
+- in-memory semantic-index provider for isolated tests and lightweight hosts
 - deterministic source-aware answer construction
 - calls to the FastAPI indexing boundary
 
 Planned responsibilities:
 
+- durable processing states and background job orchestration
 - authentication and authorization
 - tenant or workspace isolation
 - audit logging
-- background job orchestration
-- stable provider contracts for vector stores and model services
+- stable provider contracts for external model services
 
 ### Python FastAPI Service
 
@@ -69,41 +72,48 @@ Current responsibilities:
 - service health endpoint
 - indexing-boundary endpoint returning a placeholder queued status
 
-Planned responsibilities, only when implemented and tested:
+Potential future responsibilities, only when implemented and tested:
 
 - Python-specific document parsing
 - external or local embedding providers
 - model-provider integration
 - specialized retrieval or reranking
 
-### PostgreSQL
+### PostgreSQL and pgvector
 
-Current responsibility:
+Current responsibilities:
 
 - document metadata persistence
+- persistent document chunks
+- eight-dimensional deterministic embeddings
+- HNSW cosine-distance index
+- vector ranking used by search and ask endpoints
 
 Planned responsibilities:
 
-- document processing state
-- persistent document chunks
-- pgvector-backed embeddings
+- document processing states and job records
 - users, workspaces, and access-control data
-- conversation and audit data when those features are introduced
+- audit and retention data
 
 ### Redis
 
-Redis is part of the local stack but is not yet used by the application workflow. Potential uses include:
+Redis is part of the stack but is not yet used by the application workflow. Potential uses include:
 
 - short-lived caching
 - background indexing coordination
 - distributed locks or idempotency records
 - transient processing state
 
-### Semantic Index
+### Semantic Index Providers
 
-The current `ISemanticIndexStore` implementation keeps records in memory. This makes tests and the local demo deterministic, but records do not survive an API restart.
+`ISemanticIndexStore` keeps the public upload, search, and ask flows independent of storage-specific types.
 
-The next storage implementation is planned around PostgreSQL with pgvector while preserving the public API contracts and the in-memory provider for isolated tests.
+Supported implementations:
+
+- `InMemorySemanticIndexStore`: process-local, deterministic, and suitable for isolated tests;
+- `PostgresSemanticIndexStore`: transactional upsert, pgvector cosine search, and persistence across API restarts.
+
+Provider selection is configuration-driven. Docker Compose selects `Postgres`; the default when configuration is absent is `InMemory`.
 
 ## Request Flow: Upload
 
@@ -117,13 +127,13 @@ ASP.NET Core validates and saves the file
 Document metadata is inserted into PostgreSQL
     |
     v
-The API extracts supported text and creates chunks
+The API extracts text, creates chunks, and generates embeddings
     |
     v
-The API generates deterministic embeddings
+ISemanticIndexStore writes the chunk records
     |
-    v
-Chunks are written to the in-memory semantic index
+    +--> Compose: PostgreSQL transaction + pgvector column
+    +--> Tests/default: in-memory records
     |
     +--> FastAPI indexing boundary is called
     |
@@ -131,21 +141,19 @@ Chunks are written to the in-memory semantic index
 Upload response returns metadata and processing summaries
 ```
 
-The FastAPI call currently confirms the service boundary; it does not perform the local extraction or indexing work.
-
 ## Request Flow: Search
 
 ```text
 Client submits a query
     |
     v
-ASP.NET Core validates the request
+ASP.NET Core validates and embeds the query
     |
     v
-The deterministic embedding generator embeds the query
+ISemanticIndexStore performs similarity search
     |
-    v
-The in-memory semantic index calculates similarity scores
+    +--> Postgres provider: pgvector cosine distance
+    +--> In-memory provider: deterministic cosine calculation
     |
     v
 The API returns ranked chunks with source metadata
@@ -160,7 +168,7 @@ Client submits a question
 The API embeds the question and retrieves relevant chunks
     |
     v
-A deterministic answer is assembled from the best source context
+A deterministic answer is assembled from source context
     |
     v
 The API returns the answer and source records
@@ -168,13 +176,23 @@ The API returns the answer and source records
 
 This endpoint demonstrates retrieval and source attribution. It is not a production language-model implementation.
 
+## Persistence and Failure Boundaries
+
+- Chunk upserts are performed inside a PostgreSQL transaction.
+- `(document_id, chunk_index)` provides idempotent replacement semantics.
+- Chunk rows are deleted when the owning document row is deleted.
+- Embedding dimensions and finite numeric values are validated before database access.
+- API container restart does not remove pgvector records.
+- Removing the PostgreSQL volume removes local metadata and vector records.
+
 ## Design Principles
 
 - describe implemented behavior separately from planned behavior
-- preserve deterministic local execution for tests
-- keep public API contracts independent of provider-specific types
-- introduce distributed components only when a concrete requirement justifies them
-- make security and durability limitations visible
+- preserve deterministic execution without external AI credentials
+- keep public API contracts independent of pgvector-specific types
+- use configuration for provider selection
+- verify persistence through an actual container restart
+- introduce distributed components only for concrete requirements
 - keep source attribution in search and answer responses
 
 ## Production Gaps
@@ -183,7 +201,6 @@ Before handling sensitive business documents, the system requires:
 
 - authentication and role-based authorization
 - tenant or workspace isolation
-- persistent vector storage
 - asynchronous indexing with retries and idempotency
 - secure storage and malware scanning
 - secret management and restricted network exposure
@@ -191,4 +208,4 @@ Before handling sensitive business documents, the system requires:
 - structured logging, metrics, and distributed tracing
 - retrieval evaluation and defenses against unauthorized retrieval or prompt injection
 
-See [SECURITY.md](../SECURITY.md) and [ROADMAP.md](ROADMAP.md) for the current plan.
+See [SECURITY.md](../SECURITY.md), [PGVECTOR_SCHEMA.md](PGVECTOR_SCHEMA.md), and [ROADMAP.md](ROADMAP.md).
