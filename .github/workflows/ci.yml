@@ -177,8 +177,8 @@ jobs:
           with open('/tmp/search-response.json', encoding='utf-8') as response_file:
               response = json.load(response_file)
 
-          assert response['matchCount'] > 0, response
-          assert any(match['fileName'] == 'contract-policy.txt' for match in response['matches']), response
+          assert response['resultCount'] > 0, response
+          assert any(result['fileName'] == 'contract-policy.txt' for result in response['results']), response
           PY
           }
 
