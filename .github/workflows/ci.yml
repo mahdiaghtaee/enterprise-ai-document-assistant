@@ -126,6 +126,26 @@ jobs:
           wait_for_url "ASP.NET Core API" "http://localhost:5000/health"
           wait_for_url "FastAPI service" "http://localhost:8000/health"
 
+      - name: Verify pgvector database schema
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          query_database() {
+            docker compose exec -T postgres psql \
+              --username "${POSTGRES_USER:-documents}" \
+              --dbname "${POSTGRES_DB:-documents}" \
+              --no-psqlrc \
+              --tuples-only \
+              --no-align \
+              --set ON_ERROR_STOP=1 \
+              --command "$1"
+          }
+
+          test "$(query_database "SELECT count(*) FROM pg_extension WHERE extname = 'vector';")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'document_chunks' AND a.attname = 'embedding' AND format_type(a.atttypid, a.atttypmod) = 'vector(16)';")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_chunks' AND indexname = 'ix_document_chunks_embedding_cosine';")" = "1"
+
       - name: Show container status and logs on failure
         if: failure()
         run: |

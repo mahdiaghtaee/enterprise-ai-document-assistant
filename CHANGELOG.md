@@ -19,6 +19,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Runtime Docker Compose checks for the ASP.NET Core and FastAPI health endpoints.
 - Cobertura-format .NET coverage collection and retained CI artifacts.
 - CI coverage floors of 60% line coverage and 50% branch coverage.
+- Dependency Review for pull requests targeting `main`.
+- An idempotent pgvector initialization script with a `document_chunks` table, fixed `vector(16)` embeddings, and an HNSW cosine-distance index.
+- CI checks that verify the pgvector extension, vector dimension, and database index on a fresh Compose stack.
 
 ### Changed
 
@@ -28,6 +31,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Restricted GitHub Actions workflow permissions to read-only repository contents unless a workflow requires more.
 - Updated GitHub Actions to current Node 24-compatible major versions.
 - Split CI into independent .NET, Python, and container validation jobs.
+- Replaced the local `postgres:16-alpine` image with the pinned `pgvector/pgvector:0.8.5-pg16` image while keeping PostgreSQL 16.
 
 ## 0.1.0 - 2026-07-10
 
