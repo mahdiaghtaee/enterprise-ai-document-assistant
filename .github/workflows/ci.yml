@@ -146,6 +146,72 @@ jobs:
           test "$(query_database "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'document_chunks' AND a.attname = 'embedding' AND format_type(a.atttypid, a.atttypmod) = 'vector(8)';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_chunks' AND indexname = 'ix_document_chunks_embedding_cosine';")" = "1"
 
+      - name: Verify semantic index persistence across API restart
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl --fail --silent --show-error \
+            --form "file=@samples/contract-policy.txt;type=text/plain" \
+            http://localhost:5000/api/documents/upload > /tmp/upload-response.json
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/upload-response.json', encoding='utf-8') as response_file:
+              response = json.load(response_file)
+
+          assert response['embeddings']['vectorCount'] > 0, response
+          assert response['embeddings']['dimensions'] == 8, response
+          PY
+
+          assert_search_result() {
+            curl --fail --silent --show-error \
+              --header "Content-Type: application/json" \
+              --data '{"query":"vendor contract approval process","topK":3}' \
+              http://localhost:5000/api/documents/search > /tmp/search-response.json
+
+            python3 - <<'PY'
+          import json
+
+          with open('/tmp/search-response.json', encoding='utf-8') as response_file:
+              response = json.load(response_file)
+
+          assert response['matchCount'] > 0, response
+          assert any(match['fileName'] == 'contract-policy.txt' for match in response['matches']), response
+          PY
+          }
+
+          assert_search_result
+
+          docker compose restart document-api
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://localhost:5000/health > /dev/null; then
+              break
+            fi
+
+            if [ "$attempt" -eq 30 ]; then
+              echo "ASP.NET Core API did not become ready after restart"
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          assert_search_result
+
+          chunk_count=$(docker compose exec -T postgres psql \
+            --username "${POSTGRES_USER:-documents}" \
+            --dbname "${POSTGRES_DB:-documents}" \
+            --no-psqlrc \
+            --tuples-only \
+            --no-align \
+            --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM document_chunks;")
+
+          test "$chunk_count" -gt 0
+
       - name: Show container status and logs on failure
         if: failure()
         run: |
