@@ -50,7 +50,7 @@ Expected services:
 - PostgreSQL with the pgvector extension available
 - Redis
 
-Fresh PostgreSQL volumes enable the `vector` extension and create the `document_chunks` table with a fixed `vector(16)` embedding column and an HNSW cosine-distance index. The application still uses the in-memory semantic-index provider until the PostgreSQL provider is implemented.
+Fresh PostgreSQL volumes enable the `vector` extension and create the `document_chunks` table with a fixed `vector(8)` embedding column and an HNSW cosine-distance index. The dimension matches the current deterministic embedding generator. The application still uses the in-memory semantic-index provider until the PostgreSQL provider is implemented.
 
 Document metadata is persisted in PostgreSQL. Semantic-index records used by the current API are kept in API memory and are lost when the API process restarts.
 
@@ -118,7 +118,7 @@ Change the relevant value in `.env` and restart the stack.
 
 ### PostgreSQL settings or initialization scripts changed after the first startup
 
-PostgreSQL initialization scripts run only when the data volume is first created. Switching to the pgvector image does not automatically apply the new schema to an existing volume.
+PostgreSQL initialization scripts run only when the data volume is first created. Switching to the pgvector image or changing the vector dimension does not automatically update an existing volume.
 
 For disposable local data:
 
@@ -127,7 +127,7 @@ docker compose down --volumes
 docker compose up --build
 ```
 
-Do not remove a volume that contains data you need. Back it up and apply `infra/postgres/init/zz-pgvector-schema.sql` through `psql` instead.
+Do not remove a volume that contains data you need. Back it up and apply a reviewed schema migration instead.
 
 ### The API cannot reach PostgreSQL
 
