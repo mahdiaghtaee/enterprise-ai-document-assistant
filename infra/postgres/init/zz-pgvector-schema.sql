@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS document_chunks
     document_id UUID NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
     content TEXT NOT NULL CHECK (length(btrim(content)) > 0),
-    embedding vector(16) NOT NULL,
+    embedding vector(8) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (document_id, chunk_index)
