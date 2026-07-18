@@ -47,12 +47,12 @@ Expected services:
 - Web UI
 - ASP.NET Core API
 - Python FastAPI service
-- PostgreSQL with the pgvector extension available
+- PostgreSQL with pgvector
 - Redis
 
-Fresh PostgreSQL volumes enable the `vector` extension and create the `document_chunks` table with a fixed `vector(8)` embedding column and an HNSW cosine-distance index. The dimension matches the current deterministic embedding generator. The application still uses the in-memory semantic-index provider until the PostgreSQL provider is implemented.
+The Compose API uses the `Postgres` semantic-index provider. Fresh PostgreSQL volumes enable the `vector` extension and create `document_chunks` with a fixed `vector(8)` column and an HNSW cosine-distance index.
 
-Document metadata is persisted in PostgreSQL. Semantic-index records used by the current API are kept in API memory and are lost when the API process restarts.
+Document metadata and semantic-index records are persisted in PostgreSQL. Restarting only the API container does not remove indexed chunks.
 
 ## Default Local URLs
 
@@ -65,8 +65,6 @@ Document metadata is persisted in PostgreSQL. Semantic-index records used by the
 | PostgreSQL | `localhost:5432` |
 | Redis | `localhost:6379` |
 
-Use the configured port when a `*_HOST_PORT` value changes.
-
 ## Verify the Services
 
 ```bash
@@ -78,11 +76,21 @@ docker compose exec -T postgres psql -U documents -d documents -c "\d+ document_
 
 More details are in [PGVECTOR_SCHEMA.md](PGVECTOR_SCHEMA.md).
 
+## Provider Selection
+
+The semantic-index provider is selected through configuration:
+
+```text
+SemanticIndex__Provider=Postgres
+```
+
+Supported values are `InMemory` and `Postgres`. When no value is configured, the application defaults to `InMemory`; Docker Compose explicitly selects `Postgres`.
+
 ## Current Processing Boundary
 
-The ASP.NET Core API currently performs upload validation, local storage, metadata persistence, plain-text extraction, chunking, deterministic embedding generation, semantic search, and deterministic source-aware answer construction.
+The ASP.NET Core API performs upload validation, local storage, metadata persistence, plain-text extraction, chunking, deterministic embedding generation, pgvector persistence and retrieval, and deterministic source-aware answer construction.
 
-The FastAPI service currently exposes health and placeholder indexing-boundary endpoints. It does not yet perform extraction, embeddings, retrieval, or answer generation.
+The FastAPI service exposes health and placeholder indexing-boundary endpoints. It does not yet perform extraction, embeddings, retrieval, or answer generation.
 
 ## Run the Demo
 
@@ -96,19 +104,24 @@ python scripts/demo_flow.py
 dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj --configuration Release
 ```
 
-The automated tests do not require an external AI provider.
-
-## Manual Verification
+## Manual Persistence Verification
 
 1. Start the stack.
-2. Open the Web UI.
-3. Check both health endpoints and the pgvector schema commands above.
-4. Upload `samples/contract-policy.txt`.
-5. Refresh the document list.
-6. Search for `vendor contract approval process`.
-7. Ask `Who needs to approve vendor contracts?`.
-8. Inspect the returned source chunk.
-9. Restart the API container and confirm that metadata and the database schema remain while the active in-memory semantic index is cleared.
+2. Upload `samples/contract-policy.txt`.
+3. Search for `vendor contract approval process`.
+4. Restart the API only:
+
+   ```bash
+   docker compose restart document-api
+   ```
+
+5. Wait for `http://localhost:5000/health`.
+6. Repeat the search and confirm the same document remains available.
+7. Inspect stored rows:
+
+   ```bash
+   docker compose exec -T postgres psql -U documents -d documents -c "SELECT document_id, chunk_index FROM document_chunks ORDER BY document_id, chunk_index;"
+   ```
 
 ## Troubleshooting
 
@@ -116,9 +129,9 @@ The automated tests do not require an external AI provider.
 
 Change the relevant value in `.env` and restart the stack.
 
-### PostgreSQL settings or initialization scripts changed after the first startup
+### PostgreSQL initialization changed after first startup
 
-PostgreSQL initialization scripts run only when the data volume is first created. Switching to the pgvector image or changing the vector dimension does not automatically update an existing volume.
+Initialization scripts run only when the data volume is first created.
 
 For disposable local data:
 
@@ -127,23 +140,23 @@ docker compose down --volumes
 docker compose up --build
 ```
 
-Do not remove a volume that contains data you need. Back it up and apply a reviewed schema migration instead.
+Do not remove a volume containing required data. Back it up and apply a reviewed migration instead.
+
+### Search returns no results
+
+Confirm that `SemanticIndex__Provider` is `Postgres` in the running API container, the upload response includes an embedding summary, and `document_chunks` contains rows.
 
 ### The API cannot reach PostgreSQL
 
-Check container status and logs. The connection string must use the Compose service name `postgres`, not `localhost`.
+The container connection string must use the Compose service name `postgres`, not `localhost`.
 
-### The API cannot reach the FastAPI service
+### The API cannot reach FastAPI
 
-Check the `ai-service` logs. The API uses the internal address `http://ai-service:8000`; changing `AI_SERVICE_HOST_PORT` affects host access only.
+The internal address is `http://ai-service:8000`; changing the host port does not change this service-to-service URL.
 
 ### File upload fails
 
-Check API logs and verify that the content type and size are supported. Unsupported formats should fail clearly rather than being presented as indexed.
-
-### Search returns no results after an API restart
-
-This remains expected until the PostgreSQL-backed `ISemanticIndexStore` provider is implemented. The database schema exists, but the active application provider is still in memory.
+Check API logs and verify that the content type and size are supported.
 
 ### The browser cannot reach the API
 

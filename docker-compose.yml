@@ -8,6 +8,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=${POSTGRES_USER:-documents};Password=${POSTGRES_PASSWORD:-documents}
+      SemanticIndex__Provider: Postgres
       Redis__ConnectionString: redis:6379
       AiService__BaseUrl: http://ai-service:8000
     depends_on:

@@ -69,8 +69,6 @@ public sealed record EmbeddingVector(
 
 public sealed class DeterministicEmbeddingGenerator : IEmbeddingGenerator
 {
-    private const int Dimensions = 8;
-
     public Task<EmbeddingResponse> GenerateAsync(EmbeddingRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -90,12 +88,12 @@ public sealed class DeterministicEmbeddingGenerator : IEmbeddingGenerator
 
     private static IReadOnlyList<float> CreateVector(string text)
     {
-        var values = new float[Dimensions];
+        var values = new float[SemanticIndexDefaults.EmbeddingDimensions];
         var normalizedText = text.Trim().ToLowerInvariant();
 
         for (var index = 0; index < normalizedText.Length; index++)
         {
-            var bucket = index % Dimensions;
+            var bucket = index % SemanticIndexDefaults.EmbeddingDimensions;
             values[bucket] += normalizedText[index];
         }
 

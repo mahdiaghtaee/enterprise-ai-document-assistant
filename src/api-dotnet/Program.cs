@@ -19,7 +19,7 @@ builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
 builder.Services.AddSingleton<IEmbeddingGenerator, DeterministicEmbeddingGenerator>();
-builder.Services.AddSingleton<ISemanticIndexStore, InMemorySemanticIndexStore>();
+builder.Services.AddConfiguredSemanticIndex(builder.Configuration);
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {

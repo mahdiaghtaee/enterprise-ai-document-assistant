@@ -21,7 +21,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - CI coverage floors of 60% line coverage and 50% branch coverage.
 - Dependency Review for pull requests targeting `main`.
 - An idempotent pgvector initialization script with a `document_chunks` table, fixed `vector(8)` embeddings, and an HNSW cosine-distance index.
-- CI checks that verify the pgvector extension, vector dimension, and database index on a fresh Compose stack.
+- A PostgreSQL implementation of `ISemanticIndexStore` with transactional upserts and pgvector cosine search.
+- Configuration-driven selection between `InMemory` and `Postgres` semantic-index providers.
+- Provider validation tests for dimensions, finite values, defaults, and unsupported configuration.
+- Compose CI coverage that uploads, searches, restarts the API, searches again, and verifies persisted chunk rows.
 
 ### Changed
 
@@ -33,6 +36,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Split CI into independent .NET, Python, and container validation jobs.
 - Replaced the local `postgres:16-alpine` image with the pinned `pgvector/pgvector:0.8.5-pg16` image while keeping PostgreSQL 16.
 - Aligned the pgvector column dimension with the eight-dimensional deterministic embedding generator.
+- Configured Docker Compose to use persistent PostgreSQL semantic indexing while retaining the in-memory default for isolated tests.
 
 ## 0.1.0 - 2026-07-10
 
@@ -56,7 +60,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Known Limitations
 
-- Semantic-index records are not durable across API restarts.
+- Semantic-index records were not durable across API restarts in version 0.1.0.
 - Document processing is synchronous.
 - The FastAPI service does not yet perform extraction, embeddings, retrieval, or answer generation.
 - Authentication, authorization, tenant isolation, and audit logging are not implemented.
