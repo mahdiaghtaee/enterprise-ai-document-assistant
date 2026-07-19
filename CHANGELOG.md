@@ -25,6 +25,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Configuration-driven selection between `InMemory` and `Postgres` semantic-index providers.
 - Provider validation tests for dimensions, finite values, defaults, and unsupported configuration.
 - Compose CI coverage that uploads, searches, restarts the API, searches again, and verifies persisted chunk rows.
+- A durable `document_ingestion_jobs` schema with constrained processing states, bounded attempts, lifecycle timestamps, and controlled failure fields.
+- Partial PostgreSQL indexes for one active job per document and ordered pending-job claiming.
+- ASP.NET Core ingestion-job state models for `Pending`, `Processing`, `Completed`, and `Failed`.
+- Compose CI checks for ingestion-job defaults, constraints, and claim indexes.
 
 ### Changed
 
