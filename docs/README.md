@@ -11,6 +11,7 @@
 ## Development and Operations
 
 - [Local development](LOCAL_DEVELOPMENT.md)
+- [Background ingestion foundation](BACKGROUND_INGESTION.md)
 - [API examples](API_EXAMPLES.md)
 - [RAG ask endpoint](RAG_ASK_ENDPOINT.md)
 - [Demo scenario](DEMO_SCENARIO.md)
