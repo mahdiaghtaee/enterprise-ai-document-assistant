@@ -18,4 +18,8 @@
 - [Health and observability](HEALTH_AND_OBSERVABILITY.md)
 - [Release process](RELEASE_PROCESS.md)
 
+## Releases
+
+- [v0.2.0 — Persistent pgvector and ingestion-job foundation](releases/v0.2.0.md)
+
 Career, interview, and communication notes are intentionally maintained outside this software repository.

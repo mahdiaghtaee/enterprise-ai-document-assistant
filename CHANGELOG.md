@@ -2,9 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project intends to use semantic versioning once tagged releases begin.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses semantic versioning for tagged releases.
 
 ## Unreleased
+
+No unreleased changes are currently documented.
+
+## 0.2.0 - 2026-07-20
 
 ### Added
 
@@ -42,6 +46,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Aligned the pgvector column dimension with the eight-dimensional deterministic embedding generator.
 - Configured Docker Compose to use persistent PostgreSQL semantic indexing while retaining the in-memory default for isolated tests.
 
+### Migration notes
+
+- Fresh Docker Compose volumes initialize pgvector, `document_chunks`, and `document_ingestion_jobs` automatically.
+- Existing PostgreSQL volumes do not rerun entrypoint initialization scripts. Back up required data, then apply the idempotent SQL scripts manually or recreate only disposable local volumes.
+- The current deterministic embedding generator emits eight-dimensional vectors; changing the embedding dimension requires an explicit database migration.
+
+### Known limitations
+
+- Document extraction, chunking, embedding generation, and index writes still run synchronously inside the upload request.
+- The durable ingestion-job schema is present, but atomic enqueue, background worker execution, retry processing, and the public status endpoint are not implemented yet.
+- The deterministic embedding generator is intended for reproducible development and evaluation, not production retrieval quality.
+- The FastAPI service remains an integration boundary and does not perform extraction, embeddings, retrieval, or answer generation.
+- Authentication, authorization, tenant isolation, audit logging, and production secret management are not implemented.
+- Docker Compose uses development defaults and exposed local ports.
+
 ## 0.1.0 - 2026-07-10
 
 ### Added
@@ -62,7 +81,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions validation for tests, Docker Compose configuration, and container builds.
 - Architecture, security, API, local-development, and operations documentation.
 
-### Known Limitations
+### Known limitations
 
 - Semantic-index records were not durable across API restarts in version 0.1.0.
 - Document processing is synchronous.
