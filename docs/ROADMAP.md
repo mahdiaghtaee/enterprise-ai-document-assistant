@@ -18,37 +18,53 @@ This roadmap separates completed capabilities from planned work. A milestone is 
 - sample documents and end-to-end demo script
 - .NET integration tests and CI image builds
 
-## Milestone 1 — Persistent Semantic Index
+## Milestone 1 — Persistent Semantic Index (Completed in v0.2.0)
 
 Goal: preserve indexed chunks across process restarts and use PostgreSQL vector similarity when configured.
 
-Tracked by [issue #41](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/41).
+Tracked by completed [issue #41](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/41).
 
-Planned work:
+Delivered:
 
-- enable the PostgreSQL `vector` extension;
-- add a migration for document chunks and embeddings;
-- implement a pgvector-backed `ISemanticIndexStore`;
-- keep the in-memory provider for isolated tests;
-- select the active provider through configuration;
-- add integration tests for persistence, ranking, dimensions, and document isolation;
-- document migration and troubleshooting.
+- PostgreSQL `vector` extension initialization;
+- persistent `document_chunks` storage with fixed `vector(8)` embeddings;
+- an HNSW cosine-distance index;
+- a PostgreSQL-backed `ISemanticIndexStore` with transactional, idempotent upserts;
+- the in-memory provider for isolated tests;
+- configuration-driven provider selection;
+- provider validation for dimensions, finite values, defaults, and unsupported settings;
+- Docker Compose verification that retrieval survives an API-container restart;
+- migration, local setup, and troubleshooting documentation.
 
-## Milestone 2 — Reliable Background Indexing
+## Milestone 2 — Reliable Background Indexing (In progress)
 
 Goal: remove document processing from the synchronous upload request.
 
-Planned work:
+Tracked by [issue #5](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/5).
 
-- persist indexing jobs and processing states;
-- return a document identifier and status from upload;
-- process jobs with a background worker;
-- make chunk writes idempotent;
-- add bounded retries and a dead-letter path;
-- expose processing status and failure details;
-- add restart and duplicate-delivery tests.
+Foundation delivered in v0.2.0:
 
-Redis may be used for coordination only after the job model and persistence requirements are clear.
+- durable `document_ingestion_jobs` storage linked to documents;
+- constrained `Pending`, `Processing`, `Completed`, and `Failed` states;
+- bounded attempt counts, lifecycle timestamps, retry availability, and controlled failure fields;
+- one-active-job-per-document enforcement;
+- an ordered partial index for pending-job claiming;
+- ASP.NET Core state models and focused tests;
+- Docker Compose assertions for defaults, constraints, and claim indexes.
+
+Remaining work:
+
+- add a PostgreSQL ingestion-job repository;
+- persist a document and its initial job atomically;
+- return a document identifier and `Pending` state from upload without waiting for processing;
+- claim jobs through a hosted background worker using row locking and `SKIP LOCKED`;
+- move extraction, chunking, embedding generation, and semantic-index writes into the worker;
+- preserve idempotent chunk writes across retries and duplicate delivery;
+- schedule bounded retries and record terminal failure safely;
+- expose processing status and controlled failure details;
+- add successful-processing, restart-recovery, retry, terminal-failure, and duplicate-delivery integration tests.
+
+Redis may be used for coordination only after the PostgreSQL job model and recovery behavior are proven.
 
 ## Milestone 3 — Identity and Document Authorization
 

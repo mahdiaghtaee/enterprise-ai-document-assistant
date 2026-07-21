@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
-No unreleased changes are currently documented.
+### Changed
+
+- Aligned the README and roadmap with the persistent semantic-index and durable ingestion-job foundation released in version 0.2.0.
 
 ## 0.2.0 - 2026-07-20
 

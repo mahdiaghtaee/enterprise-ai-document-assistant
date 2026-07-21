@@ -22,6 +22,7 @@ Implemented:
 - configurable in-memory or PostgreSQL/pgvector semantic index
 - pgvector cosine-similarity search with source metadata
 - indexed chunks that survive API container restarts in Docker Compose
+- durable PostgreSQL ingestion-job schema with constrained lifecycle states, bounded attempts, and pending-job claim indexes
 - semantic search and source-aware ask endpoints
 - FastAPI health and indexing-boundary endpoints
 - Redis infrastructure for future caching and background work
@@ -29,7 +30,7 @@ Implemented:
 
 Not implemented yet:
 
-- background indexing, retries, and durable processing states
+- atomic document/job creation, hosted background execution, retry execution, and the public processing-status API
 - authentication, authorization, or tenant isolation
 - production language-model integration
 - audit logging and distributed observability
@@ -92,12 +93,13 @@ flowchart LR
     A --> F[FastAPI service boundary]
 ```
 
-The ASP.NET Core API owns the executable deterministic workflow. PostgreSQL stores both document metadata and semantic-index records. FastAPI proves the service boundary but does not currently perform extraction, embedding, retrieval, or answer generation.
+The ASP.NET Core API owns the executable deterministic workflow. PostgreSQL stores document metadata, semantic-index records, and the durable ingestion-job state contract. FastAPI proves the service boundary but does not currently perform extraction, embedding, retrieval, or answer generation.
 
 Architecture details:
 
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [pgvector semantic index](docs/PGVECTOR_SCHEMA.md)
+- [Background ingestion foundation](docs/BACKGROUND_INGESTION.md)
 - [Engineering case study](docs/CASE_STUDY.md)
 - [Local-first architecture decision](docs/adr/0001-local-first-document-intelligence.md)
 - [Roadmap](docs/ROADMAP.md)
@@ -108,7 +110,7 @@ Architecture details:
 
 `POST /api/documents/upload`
 
-The API validates and stores the file, persists metadata, extracts text, creates chunks, generates deterministic embeddings, and writes them through the configured semantic-index provider. Docker Compose uses PostgreSQL with pgvector.
+The API validates and stores the file, persists metadata, extracts text, creates chunks, generates deterministic embeddings, and writes them through the configured semantic-index provider. Docker Compose uses PostgreSQL with pgvector. The ingestion-job schema is present, but upload processing remains synchronous until atomic enqueue and the hosted worker are implemented.
 
 ### Search
 
@@ -135,13 +137,13 @@ Wait for the API health endpoint and repeat the search. Indexed chunks remain av
 ## Current Limitations
 
 - Only the supported local text-extraction path is implemented.
-- Processing is synchronous.
+- The durable ingestion-job schema exists, but processing remains synchronous and no hosted worker claims jobs yet.
 - FastAPI does not yet perform extraction, embedding, or retrieval.
 - Authentication, authorization, tenant isolation, and audit logging are absent.
 - The deterministic embedding model is intended for reproducible development, not production retrieval quality.
 - Docker Compose uses development defaults and exposes local ports.
 
-The next major milestone is background document ingestion with durable processing states and retries.
+The next major milestone is atomic document/job creation followed by background processing, retries, recovery, and a public processing-status API.
 
 ## Repository Structure
 
@@ -150,7 +152,7 @@ The next major milestone is background document ingestion with durable processin
 | `src/api-dotnet/` | Public API, metadata persistence, deterministic document pipeline, semantic-index providers |
 | `src/ai-service-python/` | FastAPI boundary for future Python-specific processing |
 | `src/web-ui/` | Demonstration interface |
-| `infra/postgres/` | PostgreSQL and pgvector initialization |
+| `infra/postgres/` | PostgreSQL, pgvector, and ingestion-job initialization |
 | `tests/api-dotnet/` | API, provider, and pipeline tests |
 | `scripts/` | End-to-end demonstration flow |
 | `samples/` | Uploadable example documents |
