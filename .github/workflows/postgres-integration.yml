@@ -1,0 +1,55 @@
+name: PostgreSQL integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-persistence:
+    name: Atomic document and job persistence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: documents
+          POSTGRES_PASSWORD: documents
+          POSTGRES_DB: documents
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U documents -d documents"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=documents;Username=documents;Password=documents
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore API tests
+        run: dotnet restore tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+
+      - name: Run PostgreSQL integration tests
+        run: >-
+          dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "Category=PostgresIntegration"
