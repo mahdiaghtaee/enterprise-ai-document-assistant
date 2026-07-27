@@ -20,6 +20,7 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
         }
 
         await EnsureSchemaAsync();
+        await ResetDataAsync();
         var repository = CreateRepository();
         var created = await CreateDocumentAsync(repository, "claim");
         var now = DateTimeOffset.UtcNow;
@@ -56,6 +57,7 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
         }
 
         await EnsureSchemaAsync();
+        await ResetDataAsync();
         var repository = CreateRepository();
         var created = await CreateDocumentAsync(repository, "retry", maxAttempts: 2);
         var firstClaim = await repository.ClaimNextAvailableAsync(
@@ -104,6 +106,7 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
         }
 
         await EnsureSchemaAsync();
+        await ResetDataAsync();
         var repository = CreateRepository();
         var created = await CreateDocumentAsync(repository, "recovery");
         var oldStart = DateTimeOffset.UtcNow.AddHours(-1);
@@ -199,6 +202,14 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
                 WHERE status = 'Pending';
             """;
 
+        await ExecuteNonQueryAsync(sql);
+    }
+
+    private static Task ResetDataAsync() =>
+        ExecuteNonQueryAsync("TRUNCATE TABLE document_ingestion_jobs, documents RESTART IDENTITY CASCADE;");
+
+    private static async Task ExecuteNonQueryAsync(string sql)
+    {
         await using var connection = new NpgsqlConnection(ConnectionString);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand(sql, connection);
