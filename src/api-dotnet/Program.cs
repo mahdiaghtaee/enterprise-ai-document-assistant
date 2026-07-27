@@ -24,7 +24,11 @@ builder.Services.AddConfiguredSemanticIndex(builder.Configuration);
 builder.Services.AddSingleton<IDocumentIngestionProcessor, DocumentIngestionProcessor>();
 builder.Services.Configure<DocumentIngestionWorkerOptions>(
     builder.Configuration.GetSection("IngestionWorker"));
-builder.Services.AddHostedService<DocumentIngestionWorker>();
+
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
+{
+    builder.Services.AddHostedService<DocumentIngestionWorker>();
+}
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {
@@ -111,8 +115,8 @@ app.MapPost("/api/documents/upload", async (
         TextExtraction: null,
         Chunking: null,
         Embeddings: null,
-        creationResult.Job.Id,
-        processingStatusUrl);
+        IngestionJobId: creationResult.Job.Id,
+        ProcessingStatusUrl: processingStatusUrl);
 
     return Results.Accepted(processingStatusUrl, response);
 })
