@@ -6,9 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+### Added
+
+- Atomic document metadata and initial ingestion-job creation in one PostgreSQL transaction.
+- An ASP.NET Core hosted worker that claims durable jobs with `FOR UPDATE SKIP LOCKED`.
+- Background text extraction, chunking, deterministic embedding generation, and semantic-index persistence.
+- Bounded delayed retries with terminal failure after attempt exhaustion.
+- Recovery for abandoned `Processing` jobs after a configurable timeout.
+- Graceful-shutdown handling that returns interrupted work to the queue without consuming an attempt.
+- `GET /api/documents/{documentId}/processing-status` for lifecycle, attempt, timestamp, and controlled-error reporting.
+- PostgreSQL integration tests for claiming, completion, retry exhaustion, recovery, and latest-status retrieval.
+- Configurable polling, retry, timeout, and recovery intervals through the `IngestionWorker` configuration section.
+
 ### Changed
 
-- Aligned the README and roadmap with the persistent semantic-index and durable ingestion-job foundation released in version 0.2.0.
+- `POST /api/documents/upload` now returns `202 Accepted` after durable enqueue instead of performing extraction and indexing synchronously.
+- Document list status now reflects `uploaded`, `processing`, `retry-pending`, `indexed`, or `failed` processing progress.
+- Local uploaded files are removed when atomic database enqueue fails.
+- Updated the README, roadmap, ingestion documentation, and PostgreSQL schema comments to match the active worker implementation.
 
 ## 0.2.0 - 2026-07-20
 
