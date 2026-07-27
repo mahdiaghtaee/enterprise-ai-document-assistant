@@ -27,4 +27,17 @@ public sealed class LocalDocumentStorage : IDocumentStorage
             file.Length,
             storagePath);
     }
+
+    public Task DeleteAsync(StoredDocument document, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (File.Exists(document.StoragePath))
+        {
+            File.Delete(document.StoragePath);
+        }
+
+        return Task.CompletedTask;
+    }
 }

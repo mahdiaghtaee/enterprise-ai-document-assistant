@@ -36,35 +36,30 @@ Delivered:
 - Docker Compose verification that retrieval survives an API-container restart;
 - migration, local setup, and troubleshooting documentation.
 
-## Milestone 2 — Reliable Background Indexing (In progress)
+## Milestone 2 — Reliable Background Indexing (Completed)
 
-Goal: remove document processing from the synchronous upload request.
+Goal: remove document processing from the synchronous upload request and provide durable execution, retries, recovery, and status reporting.
 
 Tracked by [issue #5](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/5).
 
-Foundation delivered in v0.2.0:
+Delivered:
 
 - durable `document_ingestion_jobs` storage linked to documents;
 - constrained `Pending`, `Processing`, `Completed`, and `Failed` states;
 - bounded attempt counts, lifecycle timestamps, retry availability, and controlled failure fields;
 - one-active-job-per-document enforcement;
-- an ordered partial index for pending-job claiming;
-- ASP.NET Core state models and focused tests;
-- Docker Compose assertions for defaults, constraints, and claim indexes.
-
-Remaining work:
-
-- add a PostgreSQL ingestion-job repository;
-- persist a document and its initial job atomically;
-- return a document identifier and `Pending` state from upload without waiting for processing;
-- claim jobs through a hosted background worker using row locking and `SKIP LOCKED`;
-- move extraction, chunking, embedding generation, and semantic-index writes into the worker;
-- preserve idempotent chunk writes across retries and duplicate delivery;
-- schedule bounded retries and record terminal failure safely;
-- expose processing status and controlled failure details;
-- add successful-processing, restart-recovery, retry, terminal-failure, and duplicate-delivery integration tests.
-
-Redis may be used for coordination only after the PostgreSQL job model and recovery behavior are proven.
+- atomic document and initial job persistence;
+- cleanup of locally stored files when enqueue persistence fails;
+- ordered transactional claiming with PostgreSQL row locking and `SKIP LOCKED`;
+- an ASP.NET Core hosted worker for extraction, chunking, embedding generation, and semantic-index writes;
+- idempotent semantic-index upserts across retry execution;
+- bounded delayed retries and terminal failure after attempt exhaustion;
+- graceful-shutdown return to the queue without consuming an attempt;
+- abandoned-processing recovery after a configurable timeout;
+- `202 Accepted` upload responses with durable job and status links;
+- a public processing-status endpoint with controlled failure details;
+- PostgreSQL integration tests for atomic persistence, claiming, completion, retry exhaustion, recovery, and latest status retrieval;
+- configuration and operations documentation.
 
 ## Milestone 3 — Identity and Document Authorization
 

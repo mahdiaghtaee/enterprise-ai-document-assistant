@@ -72,10 +72,10 @@ jobs:
         run: python -m pip install --requirement src/ai-service-python/requirements-dev.txt
 
       - name: Lint Python code
-        run: ruff check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py
+        run: ruff check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py scripts/demo_flow.py
 
       - name: Check Python formatting
-        run: ruff format --check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py
+        run: ruff format --check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py scripts/demo_flow.py
 
       - name: Run Python tests
         env:
@@ -169,7 +169,7 @@ jobs:
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_ingestion_jobs' AND indexname = 'ux_document_ingestion_jobs_active_document';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_ingestion_jobs' AND indexname = 'ix_document_ingestion_jobs_claim';")" = "1"
 
-      - name: Verify semantic index persistence across API restart
+      - name: Verify asynchronous ingestion and persistence across API restart
         shell: bash
         run: |
           set -euo pipefail
@@ -180,12 +180,31 @@ jobs:
 
           python3 - <<'PY'
           import json
+          import time
+          from urllib import request
 
           with open('/tmp/upload-response.json', encoding='utf-8') as response_file:
-              response = json.load(response_file)
+              upload = json.load(response_file)
 
-          assert response['embeddings']['vectorCount'] > 0, response
-          assert response['embeddings']['dimensions'] == 8, response
+          assert upload['indexingStatus'] == 'queued_for_background_processing', upload
+          assert upload['ingestionJobId'] > 0, upload
+          status_url = f"http://localhost:5000{upload['processingStatusUrl']}"
+          deadline = time.monotonic() + 60
+
+          while time.monotonic() < deadline:
+              with request.urlopen(status_url, timeout=10) as response:
+                  status = json.load(response)
+
+              if status['status'] == 'Completed':
+                  assert status['isTerminal'] is True, status
+                  break
+
+              if status['status'] == 'Failed':
+                  raise AssertionError(status)
+
+              time.sleep(1)
+          else:
+              raise AssertionError('Background ingestion did not complete within 60 seconds.')
           PY
 
           assert_search_result() {
@@ -233,7 +252,17 @@ jobs:
             --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM document_chunks;")
 
+          completed_job_count=$(docker compose exec -T postgres psql \
+            --username "${POSTGRES_USER:-documents}" \
+            --dbname "${POSTGRES_DB:-documents}" \
+            --no-psqlrc \
+            --tuples-only \
+            --no-align \
+            --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM document_ingestion_jobs WHERE status = 'Completed';")
+
           test "$chunk_count" -gt 0
+          test "$completed_job_count" -gt 0
 
       - name: Show container status and logs on failure
         if: failure()

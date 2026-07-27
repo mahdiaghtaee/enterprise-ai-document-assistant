@@ -15,11 +15,20 @@ builder.Services.AddCors(options =>
     });
 });
 builder.Services.AddSingleton<IDocumentRepository, PostgresDocumentRepository>();
+builder.Services.AddSingleton<IIngestionJobRepository, PostgresIngestionJobRepository>();
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
 builder.Services.AddSingleton<IEmbeddingGenerator, DeterministicEmbeddingGenerator>();
 builder.Services.AddConfiguredSemanticIndex(builder.Configuration);
+builder.Services.AddSingleton<IDocumentIngestionProcessor, DocumentIngestionProcessor>();
+builder.Services.Configure<DocumentIngestionWorkerOptions>(
+    builder.Configuration.GetSection("IngestionWorker"));
+
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
+{
+    builder.Services.AddHostedService<DocumentIngestionWorker>();
+}
 
 builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {
@@ -63,12 +72,7 @@ app.MapPost("/api/documents", (CreateDocumentRequest request, IDocumentRepositor
 app.MapPost("/api/documents/upload", async (
     IFormFile file,
     IDocumentStorage storage,
-    IDocumentRepository repository,
-    IDocumentTextExtractor textExtractor,
-    IDocumentChunker chunker,
-    IEmbeddingGenerator embeddingGenerator,
-    ISemanticIndexStore semanticIndexStore,
-    IAiIndexingClient aiClient,
+    IIngestionJobRepository jobRepository,
     CancellationToken cancellationToken) =>
 {
     var validationError = DocumentUploadValidator.Validate(file);
@@ -84,76 +88,51 @@ app.MapPost("/api/documents/upload", async (
     }
 
     var storedDocument = await storage.SaveAsync(file, cancellationToken);
-    var document = repository.Add(
-        storedDocument.OriginalFileName,
-        storedDocument.ContentType,
-        storedDocument.SizeInBytes,
-        storedDocument.StoragePath);
+    DocumentIngestionCreationResult creationResult;
 
-    var extractionResult = await textExtractor.ExtractAsync(storedDocument, cancellationToken);
-    var extractionSummary = DocumentTextExtractionSummary.FromResult(extractionResult);
-    DocumentChunkingSummary? chunkingSummary = null;
-    EmbeddingSummary? embeddingSummary = null;
-
-    if (extractionResult.Succeeded && extractionResult.Text is not null)
+    try
     {
-        var chunkingOptions = DocumentChunkingOptions.Default;
-        var chunks = chunker.Split(
-            new DocumentChunkingInput(document.Id, document.FileName, extractionResult.Text),
-            chunkingOptions);
-
-        chunkingSummary = new DocumentChunkingSummary(
-            chunks.Count,
-            chunkingOptions.MaxChunkLength,
-            chunkingOptions.OverlapLength,
-            chunks.Sum(chunk => chunk.CharacterCount));
-
-        if (chunks.Count > 0)
-        {
-            var embeddingResponse = await embeddingGenerator.GenerateAsync(
-                new EmbeddingRequest(
-                    chunks.Select(chunk => new EmbeddingInput(
-                        chunk.DocumentId,
-                        chunk.FileName,
-                        chunk.Index,
-                        chunk.Text)).ToArray()),
-                cancellationToken);
-
-            await semanticIndexStore.UpsertAsync(
-                embeddingResponse.Vectors.Select(vector => new SemanticIndexRecord(
-                    vector.DocumentId,
-                    vector.FileName,
-                    vector.ChunkIndex,
-                    vector.Text,
-                    vector.Values)).ToArray(),
-                cancellationToken);
-
-            embeddingSummary = new EmbeddingSummary(
-                embeddingResponse.Model,
-                embeddingResponse.Vectors.Count,
-                embeddingResponse.Vectors[0].Dimensions);
-        }
+        creationResult = await jobRepository.CreateDocumentWithPendingJobAsync(
+            new CreateDocumentIngestionRequest(
+                storedDocument.OriginalFileName,
+                storedDocument.ContentType,
+                storedDocument.SizeInBytes,
+                storedDocument.StoragePath),
+            cancellationToken);
+    }
+    catch
+    {
+        await storage.DeleteAsync(storedDocument, CancellationToken.None);
+        throw;
     }
 
-    var indexingStatus = extractionResult.Succeeded
-        ? await aiClient.QueueIndexingAsync(
-            storedDocument.OriginalFileName,
-            storedDocument.ContentType,
-            cancellationToken)
-        : "skipped: text extraction failed";
-
+    var processingStatusUrl = $"/api/documents/{creationResult.Document.Id}/processing-status";
     var response = new UploadDocumentResponse(
-        document.Id,
-        document.FileName,
-        document.Status,
-        indexingStatus,
-        extractionSummary,
-        chunkingSummary,
-        embeddingSummary);
+        creationResult.Document.Id,
+        creationResult.Document.FileName,
+        creationResult.Document.Status,
+        "queued_for_background_processing",
+        TextExtraction: null,
+        Chunking: null,
+        Embeddings: null,
+        IngestionJobId: creationResult.Job.Id,
+        ProcessingStatusUrl: processingStatusUrl);
 
-    return Results.Created($"/api/documents/{document.Id}", response);
+    return Results.Accepted(processingStatusUrl, response);
 })
 .DisableAntiforgery();
+
+app.MapGet("/api/documents/{documentId:guid}/processing-status", async (
+    Guid documentId,
+    IIngestionJobRepository jobRepository,
+    CancellationToken cancellationToken) =>
+{
+    var job = await jobRepository.GetLatestForDocumentAsync(documentId, cancellationToken);
+
+    return job is null
+        ? Results.NotFound(new { message = "No ingestion job was found for the document." })
+        : Results.Ok(DocumentProcessingStatusResponse.FromJob(job));
+});
 
 app.MapPost("/api/documents/search", async (
     DocumentSearchRequest request,

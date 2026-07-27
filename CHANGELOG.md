@@ -6,9 +6,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-27
+
+### Added
+
+- Atomic document metadata and initial ingestion-job creation in one PostgreSQL transaction.
+- An ASP.NET Core hosted worker that claims durable jobs with `FOR UPDATE SKIP LOCKED`.
+- Background text extraction, chunking, deterministic embedding generation, and semantic-index persistence.
+- Bounded delayed retries with terminal failure after attempt exhaustion.
+- Recovery for abandoned `Processing` jobs after a configurable timeout.
+- Graceful-shutdown handling that returns interrupted work to the queue without consuming an attempt.
+- `GET /api/documents/{documentId}/processing-status` for lifecycle, attempt, timestamp, and controlled-error reporting.
+- PostgreSQL integration tests for claiming, completion, retry exhaustion, recovery, and latest-status retrieval.
+- Focused Worker and Processor tests for completion, retry, failure, cancellation, and status mapping.
+- Configurable polling, retry, timeout, and recovery intervals through the `IngestionWorker` configuration section.
+- Release notes for the reliable background-ingestion milestone.
+
 ### Changed
 
-- Aligned the README and roadmap with the persistent semantic-index and durable ingestion-job foundation released in version 0.2.0.
+- `POST /api/documents/upload` now returns `202 Accepted` after durable enqueue instead of performing extraction and indexing synchronously.
+- Document list status now reflects `uploaded`, `processing`, `retry-pending`, `indexed`, or `failed` processing progress.
+- The Web UI and demo script now poll document processing state before search or ask operations.
+- Docker Compose CI verifies asynchronous completion, persistence across API restart, and completed job state.
+- Local uploaded files are removed when atomic database enqueue fails.
+- Updated the README, architecture, case study, roadmap, API examples, local-development guide, ingestion documentation, and PostgreSQL schema comments to match the active worker implementation.
+
+### Migration notes
+
+- Existing PostgreSQL volumes from v0.2.0 already contain the required ingestion-job schema.
+- Environments older than v0.2.0 must back up required data and apply the reviewed idempotent schema scripts or recreate only disposable local volumes.
+- Upload clients must now poll the returned `processingStatusUrl` and wait for `Completed` before expecting the new document in retrieval results.
+
+### Known limitations
+
+- Only the supported local plain-text extraction path is implemented.
+- Authentication, authorization, document ownership, tenant isolation, audit logging, and production secret management are not implemented.
+- The deterministic embedding generator is intended for reproducible development and evaluation, not production retrieval quality.
+- The FastAPI service remains an integration boundary and does not perform extraction, embeddings, retrieval, or answer generation.
+- The PostgreSQL queue does not yet provide advanced scheduling or an independently deployed worker fleet.
+- Docker Compose uses development defaults and exposed local ports.
 
 ## 0.2.0 - 2026-07-20
 

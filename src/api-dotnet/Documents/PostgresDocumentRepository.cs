@@ -36,17 +36,34 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
 
         while (reader.Read())
         {
-            documents.Add(new DocumentRecord(
-                reader.GetGuid(0),
-                reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.GetInt64(3),
-                reader.GetString(4),
-                reader.GetString(5),
-                reader.GetFieldValue<DateTimeOffset>(6)));
+            documents.Add(ReadDocument(reader));
         }
 
         return documents;
+    }
+
+    public DocumentRecord? GetById(Guid documentId)
+    {
+        const string sql = """
+            SELECT id,
+                   file_name,
+                   content_type,
+                   size_in_bytes,
+                   storage_path,
+                   status,
+                   created_at
+            FROM documents
+            WHERE id = @documentId
+            LIMIT 1;
+            """;
+
+        using var connection = new NpgsqlConnection(_connectionString);
+        connection.Open();
+        using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("documentId", documentId);
+        using var reader = command.ExecuteReader();
+
+        return reader.Read() ? ReadDocument(reader) : null;
     }
 
     public DocumentRecord Add(
@@ -87,5 +104,38 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         command.ExecuteNonQuery();
 
         return document;
+    }
+
+    public void UpdateStatus(Guid documentId, string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            throw new ArgumentException("Document status is required.", nameof(status));
+        }
+
+        const string sql = """
+            UPDATE documents
+            SET status = @status
+            WHERE id = @documentId;
+            """;
+
+        using var connection = new NpgsqlConnection(_connectionString);
+        connection.Open();
+        using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("documentId", documentId);
+        command.Parameters.AddWithValue("status", status.Trim());
+        command.ExecuteNonQuery();
+    }
+
+    private static DocumentRecord ReadDocument(NpgsqlDataReader reader)
+    {
+        return new DocumentRecord(
+            reader.GetGuid(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.GetInt64(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetFieldValue<DateTimeOffset>(6));
     }
 }

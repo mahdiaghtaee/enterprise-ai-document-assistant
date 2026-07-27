@@ -20,7 +20,43 @@ public sealed record UploadDocumentResponse(
     string? IndexingStatus,
     DocumentTextExtractionSummary? TextExtraction,
     DocumentChunkingSummary? Chunking,
-    EmbeddingSummary? Embeddings = null);
+    EmbeddingSummary? Embeddings = null,
+    long? IngestionJobId = null,
+    string? ProcessingStatusUrl = null);
+
+public sealed record DocumentProcessingStatusResponse(
+    long JobId,
+    Guid DocumentId,
+    string Status,
+    int AttemptCount,
+    int MaxAttempts,
+    DateTimeOffset AvailableAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt,
+    DateTimeOffset? FailedAt,
+    string? LastErrorCode,
+    string? LastErrorSummary,
+    DateTimeOffset UpdatedAt,
+    bool IsTerminal)
+{
+    public static DocumentProcessingStatusResponse FromJob(DocumentIngestionJob job)
+    {
+        return new DocumentProcessingStatusResponse(
+            job.Id,
+            job.DocumentId,
+            job.Status.ToString(),
+            job.AttemptCount,
+            job.MaxAttempts,
+            job.AvailableAt,
+            job.StartedAt,
+            job.CompletedAt,
+            job.FailedAt,
+            job.LastErrorCode,
+            job.LastErrorSummary,
+            job.UpdatedAt,
+            job.Status is DocumentIngestionStatus.Completed or DocumentIngestionStatus.Failed);
+    }
+}
 
 public sealed record EmbeddingSummary(
     string Model,

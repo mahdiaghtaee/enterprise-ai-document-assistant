@@ -1,7 +1,7 @@
 \set ON_ERROR_STOP on
 
 -- This file is ordered after the document and pgvector schemas.
--- The application remains synchronous until a background worker is added.
+-- The ASP.NET Core hosted worker claims and advances these durable jobs.
 CREATE TABLE IF NOT EXISTS document_ingestion_jobs
 (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -54,7 +54,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_document_ingestion_jobs_active_document
     ON document_ingestion_jobs (document_id)
     WHERE status IN ('Pending', 'Processing');
 
--- Supports ordered worker claiming without scanning completed history.
+-- Supports ordered transactional claims with FOR UPDATE SKIP LOCKED.
 CREATE INDEX IF NOT EXISTS ix_document_ingestion_jobs_claim
     ON document_ingestion_jobs (available_at, created_at, id)
     WHERE status = 'Pending';

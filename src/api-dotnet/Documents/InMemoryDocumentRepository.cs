@@ -13,6 +13,14 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
         }
     }
 
+    public DocumentRecord? GetById(Guid documentId)
+    {
+        lock (_lock)
+        {
+            return _documents.FirstOrDefault(document => document.Id == documentId);
+        }
+    }
+
     public DocumentRecord Add(string fileName, string? contentType, long sizeInBytes, string storagePath)
     {
         var document = new DocumentRecord(
@@ -30,5 +38,24 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
         }
 
         return document;
+    }
+
+    public void UpdateStatus(Guid documentId, string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            throw new ArgumentException("Document status is required.", nameof(status));
+        }
+
+        lock (_lock)
+        {
+            var index = _documents.FindIndex(document => document.Id == documentId);
+            if (index < 0)
+            {
+                return;
+            }
+
+            _documents[index] = _documents[index] with { Status = status.Trim() };
+        }
     }
 }

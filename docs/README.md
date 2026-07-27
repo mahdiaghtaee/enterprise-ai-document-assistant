@@ -11,7 +11,7 @@
 ## Development and Operations
 
 - [Local development](LOCAL_DEVELOPMENT.md)
-- [Background ingestion foundation](BACKGROUND_INGESTION.md)
+- [Background ingestion](BACKGROUND_INGESTION.md)
 - [API examples](API_EXAMPLES.md)
 - [RAG ask endpoint](RAG_ASK_ENDPOINT.md)
 - [Demo scenario](DEMO_SCENARIO.md)
@@ -20,6 +20,7 @@
 
 ## Releases
 
+- [v0.3.0 — Reliable background ingestion](releases/v0.3.0.md)
 - [v0.2.0 — Persistent pgvector and ingestion-job foundation](releases/v0.2.0.md)
 
 Career, interview, and communication notes are intentionally maintained outside this software repository.
