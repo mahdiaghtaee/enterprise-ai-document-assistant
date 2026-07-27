@@ -15,6 +15,9 @@ const askButton = document.querySelector("#askButton");
 const answerResult = document.querySelector("#answerResult");
 const sourceViewer = document.querySelector("#sourceViewer");
 
+const processingPollIntervalMs = 1000;
+const processingTimeoutMs = 60000;
+
 function printError(target, error) {
   target.classList.add("error-state");
   target.textContent = error instanceof Error ? error.message : String(error);
@@ -34,6 +37,35 @@ async function parseResponse(response) {
 function clearState(target) {
   target.classList.remove("empty-state", "error-state");
   target.replaceChildren();
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function waitForDocumentProcessing(statusPath) {
+  const deadline = Date.now() + processingTimeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = await fetch(`${apiBaseUrl}${statusPath}`);
+    const status = await parseResponse(response);
+    uploadResult.textContent = JSON.stringify(status, null, 2);
+    await loadDocuments();
+
+    if (status.status === "Completed") {
+      return status;
+    }
+
+    if (status.status === "Failed") {
+      throw new Error(
+        `${status.lastErrorCode || "processing-failed"}: ${status.lastErrorSummary || "Document processing failed."}`,
+      );
+    }
+
+    await delay(processingPollIntervalMs);
+  }
+
+  throw new Error("Document processing did not complete within 60 seconds.");
 }
 
 function showSource(source) {
@@ -149,6 +181,7 @@ uploadButton.addEventListener("click", async () => {
   const formData = new FormData();
   formData.append("file", file);
   uploadResult.textContent = "Uploading...";
+  uploadButton.disabled = true;
 
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/upload`, {
@@ -156,10 +189,19 @@ uploadButton.addEventListener("click", async () => {
       body: formData,
     });
 
-    uploadResult.textContent = JSON.stringify(await parseResponse(response), null, 2);
+    const upload = await parseResponse(response);
+    uploadResult.textContent = JSON.stringify(upload, null, 2);
     await loadDocuments();
+
+    if (!upload.processingStatusUrl) {
+      throw new Error("Upload response did not include a processing status URL.");
+    }
+
+    await waitForDocumentProcessing(upload.processingStatusUrl);
   } catch (error) {
     printError(uploadResult, error);
+  } finally {
+    uploadButton.disabled = false;
   }
 });
 
@@ -178,7 +220,7 @@ searchButton.addEventListener("click", async () => {
     });
 
     const value = await parseResponse(response);
-    renderSources(searchResult, value.matches || []);
+    renderSources(searchResult, value.results || []);
   } catch (error) {
     printError(searchResult, error);
   }
