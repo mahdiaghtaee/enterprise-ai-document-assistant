@@ -109,11 +109,14 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
         await ResetDataAsync();
         var repository = CreateRepository();
         var created = await CreateDocumentAsync(repository, "recovery");
-        var oldStart = DateTimeOffset.UtcNow.AddHours(-1);
-        var claimed = await repository.ClaimNextAvailableAsync(oldStart, CancellationToken.None);
+        var claimed = await repository.ClaimNextAvailableAsync(
+            DateTimeOffset.UtcNow,
+            CancellationToken.None);
 
         Assert.Equal(created.Job.Id, claimed!.Id);
         Assert.Equal(DocumentIngestionStatus.Processing, claimed.Status);
+
+        await SetJobStartedAtAsync(claimed.Id, DateTimeOffset.UtcNow.AddHours(-1));
 
         var recoveredCount = await repository.RecoverAbandonedAsync(
             DateTimeOffset.UtcNow.AddMinutes(-30),
@@ -207,6 +210,23 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
 
     private static Task ResetDataAsync() =>
         ExecuteNonQueryAsync("TRUNCATE TABLE document_ingestion_jobs, documents RESTART IDENTITY CASCADE;");
+
+    private static async Task SetJobStartedAtAsync(long jobId, DateTimeOffset startedAt)
+    {
+        const string sql = """
+            UPDATE document_ingestion_jobs
+            SET started_at = @startedAt,
+                updated_at = @startedAt
+            WHERE id = @jobId;
+            """;
+
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("jobId", jobId);
+        command.Parameters.AddWithValue("startedAt", startedAt);
+        await command.ExecuteNonQueryAsync();
+    }
 
     private static async Task ExecuteNonQueryAsync(string sql)
     {
