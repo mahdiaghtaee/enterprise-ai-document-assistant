@@ -15,6 +15,7 @@ Optional environment variables:
     QUERY="vendor contract approval process"
     QUESTION="Who needs to approve vendor contracts?"
     TOP_K=3
+    PROCESSING_TIMEOUT_SECONDS=60
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import json
 import mimetypes
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from urllib import request
@@ -33,6 +35,7 @@ SAMPLE_FILE = Path(os.getenv("SAMPLE_FILE", "samples/sample-policy.txt"))
 QUERY = os.getenv("QUERY", "vendor contract approval process")
 QUESTION = os.getenv("QUESTION", "Who needs to approve vendor contracts?")
 TOP_K = int(os.getenv("TOP_K", "3"))
+PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "60"))
 
 
 def print_section(title: str) -> None:
@@ -88,6 +91,27 @@ def upload_file(path: str, file_path: Path) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
+def wait_for_processing(status_path: str) -> Any:
+    deadline = time.monotonic() + PROCESSING_TIMEOUT_SECONDS
+
+    while time.monotonic() < deadline:
+        status = get_json(status_path)
+        if status.get("isTerminal"):
+            if status.get("status") != "Completed":
+                raise RuntimeError(
+                    "Document processing failed: "
+                    f"{status.get('lastErrorCode')}: {status.get('lastErrorSummary')}"
+                )
+
+            return status
+
+        time.sleep(1)
+
+    raise TimeoutError(
+        f"Document processing did not complete within {PROCESSING_TIMEOUT_SECONDS} seconds."
+    )
+
+
 def print_json(value: Any) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False))
 
@@ -106,7 +130,15 @@ def main() -> int:
         print_json(get_json("/health"))
 
         print_section("Upload document")
-        print_json(upload_file("/api/documents/upload", SAMPLE_FILE))
+        upload = upload_file("/api/documents/upload", SAMPLE_FILE)
+        print_json(upload)
+
+        status_path = upload.get("processingStatusUrl")
+        if not status_path:
+            raise RuntimeError("Upload response did not contain processingStatusUrl.")
+
+        print_section("Wait for background processing")
+        print_json(wait_for_processing(status_path))
 
         print_section("Semantic search")
         print_json(
@@ -136,6 +168,9 @@ def main() -> int:
     except URLError as exc:
         print(f"Could not connect to the API at {BASE_URL}: {exc}", file=sys.stderr)
         print("Start the stack with: docker compose up --build", file=sys.stderr)
+        return 1
+    except (RuntimeError, TimeoutError) as exc:
+        print(str(exc), file=sys.stderr)
         return 1
 
     print("\nDemo finished.")
