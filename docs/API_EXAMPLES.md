@@ -12,8 +12,6 @@ http://localhost:5000
 
 ## Health Check
 
-Use this endpoint to verify that the backend API is running.
-
 ```bash
 curl http://localhost:5000/health
 ```
@@ -24,13 +22,13 @@ Expected response shape:
 {
   "service": "document-api",
   "status": "ok",
-  "checkedAt": "2026-06-30T00:00:00+00:00"
+  "checkedAt": "2026-07-27T00:00:00+00:00"
 }
 ```
 
 ## Create Document Metadata
 
-Business purpose: register document metadata before or without uploading a physical file.
+This endpoint registers metadata without enqueueing a physical file for processing.
 
 ```bash
 curl -X POST http://localhost:5000/api/documents \
@@ -41,58 +39,92 @@ curl -X POST http://localhost:5000/api/documents \
   }'
 ```
 
+The resulting document has no ingestion job. Calling its processing-status endpoint returns `404`.
+
+## Upload and Enqueue a Document
+
+Only the currently supported plain-text upload path is accepted.
+
+```bash
+curl -i -X POST http://localhost:5000/api/documents/upload \
+  -F "file=@samples/sample-policy.txt;type=text/plain"
+```
+
+A valid request returns `202 Accepted` after the file is stored and the document metadata plus initial `Pending` job are committed atomically.
+
 Expected response shape:
 
 ```json
 {
   "id": "generated-document-id",
   "fileName": "sample-policy.txt",
-  "contentType": "text/plain",
-  "status": "metadata-only"
+  "status": "uploaded",
+  "indexingStatus": "queued_for_background_processing",
+  "textExtraction": null,
+  "chunking": null,
+  "embeddings": null,
+  "ingestionJobId": 123,
+  "processingStatusUrl": "/api/documents/generated-document-id/processing-status"
 }
 ```
 
-## Upload a Document
+The upload response intentionally does not include extraction or embedding results because those operations run in the hosted worker.
 
-Business purpose: allow a company user to upload a PDF, report, policy, contract, or knowledge-base document.
+## Poll Processing Status
 
 ```bash
-curl -X POST http://localhost:5000/api/documents/upload \
-  -F "file=@samples/sample-policy.txt;type=text/plain"
+curl http://localhost:5000/api/documents/generated-document-id/processing-status
 ```
 
-Expected response shape:
+Example while processing:
 
 ```json
 {
+  "jobId": 123,
   "documentId": "generated-document-id",
-  "fileName": "sample-policy.txt",
-  "status": "uploaded",
-  "indexingStatus": "queued_for_indexing",
-  "extraction": {
-    "succeeded": true,
-    "characterCount": 1200
-  },
-  "chunking": {
-    "chunkCount": 3
-  },
-  "embedding": {
-    "model": "deterministic-local",
-    "vectorCount": 3,
-    "dimensions": 16
-  }
+  "status": "Processing",
+  "attemptCount": 1,
+  "maxAttempts": 3,
+  "availableAt": "2026-07-27T00:00:00+00:00",
+  "startedAt": "2026-07-27T00:00:01+00:00",
+  "completedAt": null,
+  "failedAt": null,
+  "lastErrorCode": null,
+  "lastErrorSummary": null,
+  "updatedAt": "2026-07-27T00:00:01+00:00",
+  "isTerminal": false
 }
 ```
 
-## List Documents
+Example after successful indexing:
 
-Business purpose: show uploaded documents and their indexing status.
+```json
+{
+  "jobId": 123,
+  "documentId": "generated-document-id",
+  "status": "Completed",
+  "attemptCount": 1,
+  "maxAttempts": 3,
+  "availableAt": "2026-07-27T00:00:00+00:00",
+  "startedAt": "2026-07-27T00:00:01+00:00",
+  "completedAt": "2026-07-27T00:00:02+00:00",
+  "failedAt": null,
+  "lastErrorCode": null,
+  "lastErrorSummary": null,
+  "updatedAt": "2026-07-27T00:00:02+00:00",
+  "isTerminal": true
+}
+```
+
+Clients should not submit search or ask requests that depend on the uploaded document until its job reaches `Completed`.
+
+## List Documents
 
 ```bash
 curl http://localhost:5000/api/documents
 ```
 
-Expected response shape:
+Document status reflects background-processing progress and may be `uploaded`, `processing`, `retry-pending`, `indexed`, or `failed`.
 
 ```json
 [
@@ -100,14 +132,15 @@ Expected response shape:
     "id": "generated-document-id",
     "fileName": "sample-policy.txt",
     "contentType": "text/plain",
-    "status": "uploaded"
+    "sizeInBytes": 1200,
+    "storagePath": "/app/storage/documents/stored-name.txt",
+    "status": "indexed",
+    "createdAt": "2026-07-27T00:00:00+00:00"
   }
 ]
 ```
 
 ## Search Documents
-
-Business purpose: retrieve relevant internal knowledge before answering a user question.
 
 ```bash
 curl -X POST http://localhost:5000/api/documents/search \
@@ -124,7 +157,7 @@ Expected response shape:
 {
   "query": "What is the approval process for vendor contracts?",
   "resultCount": 1,
-  "matches": [
+  "results": [
     {
       "documentId": "generated-document-id",
       "fileName": "sample-policy.txt",
@@ -136,11 +169,9 @@ Expected response shape:
 }
 ```
 
-## Ask a Question with RAG
+## Ask a Grounded Question
 
-Business purpose: answer a business question using private company documents and include source attribution.
-
-This first version is deterministic and local. It does not call an external LLM provider. The answer is generated from the highest-ranked retrieved source chunk, and all source chunks are returned for verification.
+The current implementation is deterministic and local. It retrieves indexed chunks and returns source attribution without calling an external language-model provider.
 
 ```bash
 curl -X POST http://localhost:5000/api/documents/ask \
@@ -170,18 +201,18 @@ Expected response shape:
 }
 ```
 
-## Demo Narrative for Clients
+## End-to-End Demo Sequence
 
-A simple client demo can follow this story:
+1. Upload a supported document.
+2. Read `processingStatusUrl` from the `202 Accepted` response.
+3. Poll until the job reaches `Completed` or `Failed`.
+4. Inspect the document list status.
+5. Search the persistent semantic index.
+6. Ask a grounded question and inspect the returned sources.
+7. Restart the API container and verify that search still returns the indexed chunks.
 
-1. A company uploads policy documents.
-2. The backend stores document metadata.
-3. The AI service extracts and prepares text.
-4. The system indexes the document for semantic retrieval.
-5. A user asks a business question.
-6. The assistant answers using retrieved internal document context.
-7. The answer includes source references so the user can verify it.
+The repository demo script performs this sequence automatically:
 
-## Why These Examples Matter
-
-These examples show the difference between a simple chatbot and an enterprise AI assistant. The project is designed around document ownership, backend APIs, retrieval, traceability, and production-oriented architecture.
+```bash
+python scripts/demo_flow.py
+```
