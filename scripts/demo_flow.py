@@ -71,8 +71,7 @@ def upload_file(path: str, file_path: Path) -> Any:
         [
             f"--{boundary}\r\n".encode(),
             (
-                "Content-Disposition: form-data; "
-                f'name="file"; filename="{file_path.name}"\r\n'
+                f'Content-Disposition: form-data; name="file"; filename="{file_path.name}"\r\n'
             ).encode(),
             f"Content-Type: {content_type}\r\n\r\n".encode(),
             file_bytes,
