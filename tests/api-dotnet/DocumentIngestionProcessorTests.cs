@@ -24,7 +24,7 @@ public sealed class DocumentIngestionProcessorTests
 
         Assert.Equal(74, result.ExtractedCharacterCount);
         Assert.Equal(1, result.ChunkCount);
-        Assert.Equal("deterministic-local-v1", result.EmbeddingModel);
+        Assert.Equal("local-deterministic-embedding", result.EmbeddingModel);
         Assert.Equal(1, result.VectorCount);
         Assert.Equal(8, result.Dimensions);
 
