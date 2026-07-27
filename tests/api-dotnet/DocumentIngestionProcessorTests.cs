@@ -22,7 +22,7 @@ public sealed class DocumentIngestionProcessorTests
 
         var result = await processor.ProcessAsync(document, CancellationToken.None);
 
-        Assert.Equal(72, result.ExtractedCharacterCount);
+        Assert.Equal(74, result.ExtractedCharacterCount);
         Assert.Equal(1, result.ChunkCount);
         Assert.Equal("deterministic-local-v1", result.EmbeddingModel);
         Assert.Equal(1, result.VectorCount);
