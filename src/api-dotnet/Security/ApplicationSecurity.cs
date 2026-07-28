@@ -114,7 +114,10 @@ public static class ApplicationSecurityServiceCollectionExtensions
                 AuthorizationPolicies.DocumentAccess,
                 policy => policy
                     .RequireAuthenticatedUser()
-                    .RequireClaim(JwtRegisteredClaimNames.Sub));
+                    .RequireClaim(JwtRegisteredClaimNames.Sub)
+                    .RequireAssertion(context =>
+                        context.User.IsInRole(AppRoles.User) ||
+                        context.User.IsInRole(AppRoles.Admin)));
             options.AddPolicy(
                 AuthorizationPolicies.AdminOnly,
                 policy => policy.RequireRole(AppRoles.Admin));
