@@ -16,6 +16,9 @@ Optional environment variables:
     QUESTION="Who needs to approve vendor contracts?"
     TOP_K=3
     PROCESSING_TIMEOUT_SECONDS=60
+    JWT_TOKEN=<externally issued token>
+    DEMO_USER_ID=demo-user
+    DEMO_ROLE=User
 """
 
 from __future__ import annotations
@@ -30,33 +33,41 @@ from typing import Any
 from urllib import request
 from urllib.error import HTTPError, URLError
 
+from create_dev_token import create_token
+
 BASE_URL = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
 SAMPLE_FILE = Path(os.getenv("SAMPLE_FILE", "samples/sample-policy.txt"))
 QUERY = os.getenv("QUERY", "vendor contract approval process")
 QUESTION = os.getenv("QUESTION", "Who needs to approve vendor contracts?")
 TOP_K = int(os.getenv("TOP_K", "3"))
 PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "60"))
+JWT_TOKEN = os.getenv("JWT_TOKEN") or create_token(
+    os.getenv("DEMO_USER_ID", "demo-user"),
+    os.getenv("DEMO_ROLE", "User"),
+    PROCESSING_TIMEOUT_SECONDS + 300,
+)
 
 
 def print_section(title: str) -> None:
     print(f"\n== {title} ==")
 
 
+def authorization_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {JWT_TOKEN}"}
+
+
 def get_json(path: str) -> Any:
     url = f"{BASE_URL}{path}"
-    with request.urlopen(url, timeout=30) as response:
+    req = request.Request(url, headers=authorization_headers())
+    with request.urlopen(req, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def post_json(path: str, payload: dict[str, Any]) -> Any:
     url = f"{BASE_URL}{path}"
     data = json.dumps(payload).encode("utf-8")
-    req = request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    headers = {"Content-Type": "application/json", **authorization_headers()}
+    req = request.Request(url, data=data, headers=headers, method="POST")
 
     with request.urlopen(req, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -79,10 +90,14 @@ def upload_file(path: str, file_path: Path) -> Any:
         ]
     )
 
+    headers = {
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        **authorization_headers(),
+    }
     req = request.Request(
         f"{BASE_URL}{path}",
         data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers=headers,
         method="POST",
     )
 
@@ -127,6 +142,9 @@ def main() -> int:
     try:
         print_section("Health check")
         print_json(get_json("/health"))
+
+        print_section("Authenticated principal")
+        print_json(get_json("/api/auth/me"))
 
         print_section("Upload document")
         upload = upload_file("/api/documents/upload", SAMPLE_FILE)
