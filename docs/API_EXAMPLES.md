@@ -1,37 +1,51 @@
 # API Examples
 
-This document describes the current client-facing API flow for the Enterprise AI Document Assistant.
+The API is published by Docker Compose at `http://localhost:5000`. The health endpoint is public; every document endpoint requires a JWT bearer token.
 
-The API runs inside the container on port `8080`, and Docker Compose publishes it to the host on port `5000`.
+## Create a local token
 
-## Base URL
-
-```text
-http://localhost:5000
+```bash
+TOKEN=$(python scripts/create_dev_token.py --user demo-user --role User)
 ```
 
-## Health Check
+Windows PowerShell:
+
+```powershell
+$TOKEN = python scripts/create_dev_token.py --user demo-user --role User
+```
+
+The helper and default signing key are for local development only.
+
+## Health check
 
 ```bash
 curl http://localhost:5000/health
 ```
 
-Expected response shape:
+## Current principal
+
+```bash
+curl http://localhost:5000/api/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Expected shape:
 
 ```json
 {
-  "service": "document-api",
-  "status": "ok",
-  "checkedAt": "2026-07-27T00:00:00+00:00"
+  "userId": "demo-user",
+  "roles": ["User"],
+  "canAccessAllDocuments": false
 }
 ```
 
-## Create Document Metadata
+## Create document metadata
 
-This endpoint registers metadata without enqueueing a physical file for processing.
+This registers metadata owned by the authenticated subject without enqueueing a physical file.
 
 ```bash
 curl -X POST http://localhost:5000/api/documents \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "fileName": "sample-policy.txt",
@@ -39,20 +53,17 @@ curl -X POST http://localhost:5000/api/documents \
   }'
 ```
 
-The resulting document has no ingestion job. Calling its processing-status endpoint returns `404`.
+The owner is never accepted from the JSON body. It is derived from the JWT `sub` claim.
 
-## Upload and Enqueue a Document
-
-Only the currently supported plain-text upload path is accepted.
+## Upload and enqueue
 
 ```bash
 curl -i -X POST http://localhost:5000/api/documents/upload \
+  -H "Authorization: Bearer $TOKEN" \
   -F "file=@samples/sample-policy.txt;type=text/plain"
 ```
 
-A valid request returns `202 Accepted` after the file is stored and the document metadata plus initial `Pending` job are committed atomically.
-
-Expected response shape:
+A valid request returns `202 Accepted` after the file is stored and document metadata plus the initial `Pending` job are committed atomically.
 
 ```json
 {
@@ -68,63 +79,23 @@ Expected response shape:
 }
 ```
 
-The upload response intentionally does not include extraction or embedding results because those operations run in the hosted worker.
-
-## Poll Processing Status
+## Poll processing status
 
 ```bash
-curl http://localhost:5000/api/documents/generated-document-id/processing-status
+curl http://localhost:5000/api/documents/generated-document-id/processing-status \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Example while processing:
+An ordinary user receives `404` for another subject's document identifier. An `Admin` token can inspect status across owners.
 
-```json
-{
-  "jobId": 123,
-  "documentId": "generated-document-id",
-  "status": "Processing",
-  "attemptCount": 1,
-  "maxAttempts": 3,
-  "availableAt": "2026-07-27T00:00:00+00:00",
-  "startedAt": "2026-07-27T00:00:01+00:00",
-  "completedAt": null,
-  "failedAt": null,
-  "lastErrorCode": null,
-  "lastErrorSummary": null,
-  "updatedAt": "2026-07-27T00:00:01+00:00",
-  "isTerminal": false
-}
-```
-
-Example after successful indexing:
-
-```json
-{
-  "jobId": 123,
-  "documentId": "generated-document-id",
-  "status": "Completed",
-  "attemptCount": 1,
-  "maxAttempts": 3,
-  "availableAt": "2026-07-27T00:00:00+00:00",
-  "startedAt": "2026-07-27T00:00:01+00:00",
-  "completedAt": "2026-07-27T00:00:02+00:00",
-  "failedAt": null,
-  "lastErrorCode": null,
-  "lastErrorSummary": null,
-  "updatedAt": "2026-07-27T00:00:02+00:00",
-  "isTerminal": true
-}
-```
-
-Clients should not submit search or ask requests that depend on the uploaded document until its job reaches `Completed`.
-
-## List Documents
+## List visible documents
 
 ```bash
-curl http://localhost:5000/api/documents
+curl http://localhost:5000/api/documents \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Document status reflects background-processing progress and may be `uploaded`, `processing`, `retry-pending`, `indexed`, or `failed`.
+A `User` sees only documents whose `ownerId` equals the token subject. An `Admin` sees all documents.
 
 ```json
 [
@@ -135,15 +106,17 @@ Document status reflects background-processing progress and may be `uploaded`, `
     "sizeInBytes": 1200,
     "storagePath": "/app/storage/documents/stored-name.txt",
     "status": "indexed",
-    "createdAt": "2026-07-27T00:00:00+00:00"
+    "createdAt": "2026-07-28T00:00:00+00:00",
+    "ownerId": "demo-user"
   }
 ]
 ```
 
-## Search Documents
+## Search authorized documents
 
 ```bash
 curl -X POST http://localhost:5000/api/documents/search \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What is the approval process for vendor contracts?",
@@ -151,7 +124,7 @@ curl -X POST http://localhost:5000/api/documents/search \
   }'
 ```
 
-Expected response shape:
+Owner filtering is applied before PostgreSQL vector ranking. No chunks belonging to another ordinary user are returned.
 
 ```json
 {
@@ -169,12 +142,11 @@ Expected response shape:
 }
 ```
 
-## Ask a Grounded Question
-
-The current implementation is deterministic and local. It retrieves indexed chunks and returns source attribution without calling an external language-model provider.
+## Ask a grounded question
 
 ```bash
 curl -X POST http://localhost:5000/api/documents/ask \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "question": "Who needs to approve vendor contracts?",
@@ -182,37 +154,26 @@ curl -X POST http://localhost:5000/api/documents/ask \
   }'
 ```
 
-Expected response shape:
+The answer and every returned source are built only from chunks visible to the authenticated subject.
 
-```json
-{
-  "question": "Who needs to approve vendor contracts?",
-  "answer": "Based on the indexed documents, the most relevant source is from sample-policy.txt: ...",
-  "sourceCount": 1,
-  "sources": [
-    {
-      "documentId": "generated-document-id",
-      "fileName": "sample-policy.txt",
-      "chunkIndex": 0,
-      "score": 0.91,
-      "text": "Vendor contracts must be reviewed by Operations and Finance before approval."
-    }
-  ]
-}
+## Authorization failure examples
+
+Anonymous document request:
+
+```bash
+curl -i http://localhost:5000/api/documents
 ```
 
-## End-to-End Demo Sequence
+Expected status: `401 Unauthorized`.
 
-1. Upload a supported document.
-2. Read `processingStatusUrl` from the `202 Accepted` response.
-3. Poll until the job reaches `Completed` or `Failed`.
-4. Inspect the document list status.
-5. Search the persistent semantic index.
-6. Ask a grounded question and inspect the returned sources.
-7. Restart the API container and verify that search still returns the indexed chunks.
+A signed token without `sub` is authenticated but fails the document policy with `403 Forbidden`.
 
-The repository demo script performs this sequence automatically:
+A valid ordinary-user token that references another owner's document receives `404 Not Found` from the status endpoint and no foreign matches from Search or Ask.
+
+## End-to-end demo
 
 ```bash
 python scripts/demo_flow.py
 ```
+
+The script creates a local user token when `JWT_TOKEN` is not supplied, uploads a sample, polls background processing, searches, and asks a grounded question.
