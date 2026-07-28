@@ -97,7 +97,8 @@ public sealed class DocumentIngestionProcessor : IDocumentIngestionProcessor
                 vector.FileName,
                 vector.ChunkIndex,
                 vector.Text,
-                vector.Values)).ToArray(),
+                vector.Values,
+                document.OwnerId)).ToArray(),
             cancellationToken);
 
         return new DocumentIngestionProcessingResult(
