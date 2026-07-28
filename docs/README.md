@@ -8,6 +8,11 @@
 - [Local-first architecture decision](adr/0001-local-first-document-intelligence.md)
 - [Roadmap](ROADMAP.md)
 
+## Security
+
+- [Authentication and document authorization](AUTHENTICATION_AND_AUTHORIZATION.md)
+- [Security policy](../SECURITY.md)
+
 ## Development and Operations
 
 - [Local development](LOCAL_DEVELOPMENT.md)
