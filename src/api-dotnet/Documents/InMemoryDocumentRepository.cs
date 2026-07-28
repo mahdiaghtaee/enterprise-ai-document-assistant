@@ -5,23 +5,32 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
     private readonly List<DocumentRecord> _documents = [];
     private readonly object _lock = new();
 
-    public IReadOnlyCollection<DocumentRecord> GetAll()
+    public IReadOnlyCollection<DocumentRecord> GetAll(string? ownerId = null)
     {
         lock (_lock)
         {
-            return _documents.ToArray();
+            return _documents
+                .Where(document => ownerId is null || document.OwnerId == ownerId)
+                .ToArray();
         }
     }
 
-    public DocumentRecord? GetById(Guid documentId)
+    public DocumentRecord? GetById(Guid documentId, string? ownerId = null)
     {
         lock (_lock)
         {
-            return _documents.FirstOrDefault(document => document.Id == documentId);
+            return _documents.FirstOrDefault(document =>
+                document.Id == documentId &&
+                (ownerId is null || document.OwnerId == ownerId));
         }
     }
 
-    public DocumentRecord Add(string fileName, string? contentType, long sizeInBytes, string storagePath)
+    public DocumentRecord Add(
+        string fileName,
+        string? contentType,
+        long sizeInBytes,
+        string storagePath,
+        string ownerId = DocumentOwnership.LegacyOwnerId)
     {
         var document = new DocumentRecord(
             Guid.NewGuid(),
@@ -30,7 +39,8 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
             sizeInBytes,
             storagePath,
             "uploaded",
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            DocumentOwnership.Normalize(ownerId));
 
         lock (_lock)
         {
