@@ -1,4 +1,5 @@
 using Npgsql;
+using NpgsqlTypes;
 
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
@@ -12,7 +13,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
     }
 
-    public IReadOnlyCollection<DocumentRecord> GetAll()
+    public IReadOnlyCollection<DocumentRecord> GetAll(string? ownerId = null)
     {
         const string sql = """
             SELECT id,
@@ -21,8 +22,10 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
                    size_in_bytes,
                    storage_path,
                    status,
-                   created_at
+                   created_at,
+                   owner_id
             FROM documents
+            WHERE @ownerId IS NULL OR owner_id = @ownerId
             ORDER BY created_at DESC;
             """;
 
@@ -30,6 +33,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         connection.Open();
 
         using var command = new NpgsqlCommand(sql, connection);
+        AddOwnerParameter(command, ownerId);
         using var reader = command.ExecuteReader();
 
         var documents = new List<DocumentRecord>();
@@ -42,7 +46,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         return documents;
     }
 
-    public DocumentRecord? GetById(Guid documentId)
+    public DocumentRecord? GetById(Guid documentId, string? ownerId = null)
     {
         const string sql = """
             SELECT id,
@@ -51,9 +55,11 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
                    size_in_bytes,
                    storage_path,
                    status,
-                   created_at
+                   created_at,
+                   owner_id
             FROM documents
             WHERE id = @documentId
+              AND (@ownerId IS NULL OR owner_id = @ownerId)
             LIMIT 1;
             """;
 
@@ -61,6 +67,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         connection.Open();
         using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("documentId", documentId);
+        AddOwnerParameter(command, ownerId);
         using var reader = command.ExecuteReader();
 
         return reader.Read() ? ReadDocument(reader) : null;
@@ -70,7 +77,8 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         string fileName,
         string? contentType,
         long sizeInBytes,
-        string storagePath)
+        string storagePath,
+        string ownerId = DocumentOwnership.LegacyOwnerId)
     {
         var document = new DocumentRecord(
             Guid.NewGuid(),
@@ -79,13 +87,14 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             sizeInBytes,
             storagePath,
             "uploaded",
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            DocumentOwnership.Normalize(ownerId));
 
         const string sql = """
             INSERT INTO documents
-                (id, file_name, content_type, size_in_bytes, storage_path, status, created_at)
+                (id, file_name, content_type, size_in_bytes, storage_path, status, created_at, owner_id)
             VALUES
-                (@id, @fileName, @contentType, @sizeInBytes, @storagePath, @status, @createdAt);
+                (@id, @fileName, @contentType, @sizeInBytes, @storagePath, @status, @createdAt, @ownerId);
             """;
 
         using var connection = new NpgsqlConnection(_connectionString);
@@ -101,6 +110,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         command.Parameters.AddWithValue("storagePath", document.StoragePath);
         command.Parameters.AddWithValue("status", document.Status);
         command.Parameters.AddWithValue("createdAt", document.CreatedAt);
+        command.Parameters.AddWithValue("ownerId", document.OwnerId);
         command.ExecuteNonQuery();
 
         return document;
@@ -127,6 +137,12 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         command.ExecuteNonQuery();
     }
 
+    private static void AddOwnerParameter(NpgsqlCommand command, string? ownerId)
+    {
+        command.Parameters.Add("ownerId", NpgsqlDbType.Text).Value =
+            ownerId is null ? DBNull.Value : DocumentOwnership.Normalize(ownerId);
+    }
+
     private static DocumentRecord ReadDocument(NpgsqlDataReader reader)
     {
         return new DocumentRecord(
@@ -136,6 +152,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             reader.GetInt64(3),
             reader.GetString(4),
             reader.GetString(5),
-            reader.GetFieldValue<DateTimeOffset>(6));
+            reader.GetFieldValue<DateTimeOffset>(6),
+            reader.GetString(7));
     }
 }
