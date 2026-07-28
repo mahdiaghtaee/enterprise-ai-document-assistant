@@ -1,14 +1,14 @@
 # Local Development Guide
 
-This guide covers local setup, durable ingestion verification, and troubleshooting for the current implementation.
+This guide covers authenticated local setup, durable ingestion verification, ownership isolation, and troubleshooting.
 
 ## Prerequisites
 
-For the Docker Compose workflow, install Docker, Docker Compose v2, and Git. The .NET 8 SDK and Python 3.11 or later are required only when running tests or scripts directly on the host.
+For Docker Compose, install Docker, Docker Compose v2, Git, and Python 3.11 or later. The .NET 8 SDK is required only when running .NET tests directly on the host.
 
-## Environment Setup
+## Environment setup
 
-Docker Compose includes development defaults, so the stack can start without `.env`. Copy the example file when you need to change host ports or PostgreSQL development credentials.
+Docker Compose includes development defaults, so the stack can start without `.env`. Copy the example file when changing host ports or PostgreSQL development credentials.
 
 Linux or macOS:
 
@@ -29,14 +29,22 @@ Copy-Item .env.example .env
 | `AI_SERVICE_HOST_PORT` | `8000` | FastAPI host port |
 | `POSTGRES_HOST_PORT` | `5432` | PostgreSQL host port |
 | `REDIS_HOST_PORT` | `6379` | Redis host port |
-| `ASPNETCORE_ENVIRONMENT` | `Development` | ASP.NET Core environment |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | Loads explicit local JWT configuration |
 | `POSTGRES_DB` | `documents` | Local database name |
 | `POSTGRES_USER` | `documents` | Local database user |
 | `POSTGRES_PASSWORD` | `documents` | Local database password |
 
-These values are for local development only.
+These values and the JWT settings in `appsettings.Development.json` are local-development values only.
 
-The hosted worker also accepts standard ASP.NET Core environment-variable configuration:
+A non-development deployment must supply its own:
+
+- `Jwt__Issuer`;
+- `Jwt__Audience`;
+- `Jwt__SigningKey` with at least 32 UTF-8 bytes.
+
+Missing JWT configuration prevents API startup.
+
+The hosted worker also accepts:
 
 | Variable | Default | Purpose |
 |---|---:|---|
@@ -45,7 +53,7 @@ The hosted worker also accepts standard ASP.NET Core environment-variable config
 | `IngestionWorker__ProcessingTimeout` | `00:10:00` | Maximum processing lease before recovery |
 | `IngestionWorker__RecoveryInterval` | `00:01:00` | Interval between abandoned-job recovery scans |
 
-## Start the Stack
+## Start the stack
 
 ```bash
 docker compose up --build
@@ -53,22 +61,22 @@ docker compose up --build
 
 Expected services:
 
+- authenticated ASP.NET Core document API and hosted ingestion worker;
 - Web UI;
-- ASP.NET Core API and hosted ingestion worker;
 - Python FastAPI service;
 - PostgreSQL with pgvector;
 - Redis.
 
-Fresh PostgreSQL volumes enable the `vector` extension and initialize:
+Fresh PostgreSQL volumes initialize:
 
-- `documents` for metadata;
-- `document_ingestion_jobs` for durable lifecycle state;
-- `document_chunks` for persistent vector records;
-- the active-job, claim-order, history, and HNSW indexes.
+- `documents`, including required `owner_id`;
+- `document_ingestion_jobs`;
+- `document_chunks`;
+- owner/date, active-job, claim-order, history, and HNSW indexes.
 
-Restarting only the API container does not remove document metadata, job history, or indexed chunks.
+Restarting only the API container does not remove ownership, metadata, job history, or indexed chunks.
 
-## Default Local URLs
+## Local URLs
 
 | Service | URL |
 |---|---|
@@ -79,129 +87,164 @@ Restarting only the API container does not remove document metadata, job history
 | PostgreSQL | `localhost:5432` |
 | Redis | `localhost:6379` |
 
-## Verify the Services and Schema
+## Create a development token
+
+Ordinary user:
+
+```bash
+python scripts/create_dev_token.py --user demo-user --role User
+```
+
+Administrator used only for local authorization verification:
+
+```bash
+python scripts/create_dev_token.py --user demo-admin --role Admin
+```
+
+Paste the token into Swagger's **Authorize** dialog or the Web UI authentication panel. The helper uses only the Python standard library and is not an identity provider.
+
+Verify the principal:
+
+```bash
+TOKEN=$(python scripts/create_dev_token.py --user demo-user --role User)
+curl http://localhost:5000/api/auth/me -H "Authorization: Bearer $TOKEN"
+```
+
+The public health endpoint does not require a token:
 
 ```bash
 curl http://localhost:5000/health
 curl http://localhost:8000/health
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
-docker compose exec -T postgres psql -U documents -d documents -c "\d+ document_ingestion_jobs"
-docker compose exec -T postgres psql -U documents -d documents -c "\d+ document_chunks"
 ```
 
-More details are in [BACKGROUND_INGESTION.md](BACKGROUND_INGESTION.md) and [PGVECTOR_SCHEMA.md](PGVECTOR_SCHEMA.md).
+## Verify the schema
 
-## Provider Selection
+```bash
+docker compose exec -T postgres psql -U documents -d documents -c "\d+ documents"
+docker compose exec -T postgres psql -U documents -d documents -c "\d+ document_ingestion_jobs"
+docker compose exec -T postgres psql -U documents -d documents -c "\d+ document_chunks"
+docker compose exec -T postgres psql -U documents -d documents -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+```
 
-The semantic-index provider is selected through configuration:
+More details are in [AUTHENTICATION_AND_AUTHORIZATION.md](AUTHENTICATION_AND_AUTHORIZATION.md), [BACKGROUND_INGESTION.md](BACKGROUND_INGESTION.md), and [PGVECTOR_SCHEMA.md](PGVECTOR_SCHEMA.md).
+
+## Provider selection
+
+Docker Compose selects:
 
 ```text
 SemanticIndex__Provider=Postgres
 ```
 
-Supported values are `InMemory` and `Postgres`. When no value is configured, the application defaults to `InMemory`; Docker Compose explicitly selects `Postgres`.
+Supported values are `InMemory` and `Postgres`. Without configuration, isolated application tests use `InMemory`.
 
-## Current Processing Boundary
+## Processing and authorization boundary
 
-The upload request performs validation, local file storage, and atomic document/job persistence. It returns `202 Accepted` without waiting for extraction or indexing.
+The upload request:
 
-The ASP.NET Core hosted worker performs:
+1. validates the JWT and document-access policy;
+2. derives ownership from `sub`;
+3. validates and stores the file;
+4. atomically persists document metadata with its owner and the initial job;
+5. returns `202 Accepted`.
 
-- job claiming;
-- plain-text extraction;
-- fixed-size chunking;
-- deterministic embedding generation;
-- semantic-index persistence;
-- retry, completion, terminal failure, and recovery transitions.
+The hosted worker performs extraction, chunking, deterministic embeddings, semantic-index persistence, retry, completion, failure, and recovery. Ownership is carried from document metadata into index records.
 
-The FastAPI service exposes health and placeholder indexing-boundary endpoints. It does not yet perform extraction, embeddings, retrieval, or answer generation.
+Document list, processing status, Search, Ask, and source text are filtered by owner. An `Admin` token bypasses the owner filter; it does not bypass authentication.
 
-## Run the Demo
+## Run the demo
 
 ```bash
 python scripts/demo_flow.py
 ```
 
-The script uploads a sample file, polls the processing-status endpoint until completion, runs search, and asks a grounded question.
+When `JWT_TOKEN` is absent, the script creates a short-lived local `User` token. Override the subject with `DEMO_USER_ID` or supply a separately issued token through `JWT_TOKEN`.
 
-## Run the .NET Tests
+The script uploads a sample, polls status, runs owner-filtered search, and asks a grounded question.
+
+## Run tests
 
 ```bash
 dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj --configuration Release
 ```
 
-PostgreSQL lifecycle tests run when `POSTGRES_TEST_CONNECTION_STRING` is configured.
+PostgreSQL lifecycle tests run when `POSTGRES_TEST_CONNECTION_STRING` is configured. CI additionally verifies anonymous rejection, cross-user isolation, administrator visibility, persisted ownership, and retrieval after API restart.
 
-## Manual Durable-Ingestion Verification
+## Manual isolation verification
 
-1. Start the stack.
-2. Upload `samples/contract-policy.txt`.
-3. Read `processingStatusUrl` from the `202 Accepted` response.
-4. Poll until the job reaches `Completed`.
-5. Search for `vendor contract approval process`.
-6. Restart the API only:
+1. Generate tokens for `user-a`, `user-b`, and an `Admin`.
+2. Upload `samples/contract-policy.txt` with the `user-a` token.
+3. Poll the returned status URL with `user-a` until `Completed`.
+4. Search with `user-a`; the document must be returned.
+5. Repeat Search with `user-b`; no chunk from `user-a` may be returned.
+6. Search with the `Admin` token; the document may be returned.
+7. Restart only the API:
 
    ```bash
    docker compose restart document-api
    ```
 
-7. Wait for `http://localhost:5000/health`.
-8. Repeat the search and confirm the same document remains available.
-9. Inspect persisted state:
+8. Repeat all three searches and confirm the same access boundary.
+9. Inspect ownership:
 
    ```bash
-   docker compose exec -T postgres psql -U documents -d documents -c "SELECT id, document_id, status, attempt_count, last_error_code FROM document_ingestion_jobs ORDER BY id;"
-   docker compose exec -T postgres psql -U documents -d documents -c "SELECT document_id, chunk_index FROM document_chunks ORDER BY document_id, chunk_index;"
+   docker compose exec -T postgres psql -U documents -d documents -c "SELECT id, file_name, owner_id, status FROM documents ORDER BY created_at DESC;"
    ```
 
-## Troubleshooting
+## Existing PostgreSQL volumes
 
-### A host port is already in use
+PostgreSQL entrypoint scripts run only for a fresh data volume. Existing volumes must not be assumed to have `owner_id`.
 
-Change the relevant value in `.env` and restart the stack.
+For required data:
 
-### PostgreSQL initialization changed after first startup
+1. create and verify a backup;
+2. review `infra/postgres/init/zzzz-document-ownership.sql`;
+3. apply it manually with `ON_ERROR_STOP`;
+4. confirm all rows have nonblank owners;
+5. deploy the authenticated API.
 
-Initialization scripts run only when the data volume is first created.
-
-For disposable local data:
+For disposable local data only:
 
 ```bash
 docker compose down --volumes
 docker compose up --build
 ```
 
-Do not remove a volume containing required data. Back it up and apply the idempotent SQL scripts or a reviewed migration instead.
+## Troubleshooting
 
-### A document remains Pending
+### `401 Unauthorized`
 
-Check API logs for worker-loop database errors. Verify the API connection string, inspect `available_at`, and confirm the job has attempts remaining.
+Confirm the header uses `Authorization: Bearer <token>`. Verify signature key, issuer, audience, expiration, and API environment.
+
+### `403 Forbidden`
+
+The token may be valid but missing `sub` or an approved `User`/`Admin` role.
+
+### A foreign status URL returns `404`
+
+This is intentional for ordinary users. The API does not reveal whether another owner's document exists.
+
+### Search returns no results
+
+Confirm the current subject owns the document, the job reached `Completed`, the configured provider is `Postgres`, and `document_chunks` contains rows. Test with an `Admin` token only when diagnosing ownership.
+
+### A document remains `Pending` or becomes `Failed`
+
+Inspect API logs and the ingestion table:
 
 ```bash
 docker compose logs document-api
 docker compose exec -T postgres psql -U documents -d documents -c "SELECT * FROM document_ingestion_jobs ORDER BY id DESC;"
 ```
 
-### A document reaches Failed
+### PostgreSQL initialization changed after first startup
 
-Read `last_error_code` and `last_error_summary` from the processing-status endpoint. Unsupported or empty document content is terminal; transient infrastructure errors are retried until the attempt limit is reached.
+Initialization scripts do not rerun against an existing volume. Apply reviewed migrations after backup rather than deleting required data.
 
-### Search returns no results
+### A host port is already in use
 
-Confirm the document job reached `Completed`, `SemanticIndex__Provider` is `Postgres`, and `document_chunks` contains rows.
-
-### The API cannot reach PostgreSQL
-
-The container connection string must use the Compose service name `postgres`, not `localhost`.
-
-### The API cannot reach FastAPI
-
-The internal address is `http://ai-service:8000`; changing the host port does not change this service-to-service URL.
-
-### File upload fails
-
-Check API logs and verify that the content type and size are supported. If database enqueue fails after storage, the API removes the newly stored file.
+Change the relevant `.env` value and restart the stack.
 
 ### The browser cannot reach the API
 
-Confirm that the API health endpoint responds. When `API_HOST_PORT` changes, update the Web UI API base URL stored in browser local storage.
+Confirm the health endpoint responds. When `API_HOST_PORT` changes, update the Web UI API base URL stored in browser local storage.
