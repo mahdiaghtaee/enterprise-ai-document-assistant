@@ -15,7 +15,10 @@ public sealed class DocumentApiIntegrationTests : IClassFixture<DocumentApiFacto
 
     public DocumentApiIntegrationTests(DocumentApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = JwtTestToken.CreateAuthenticatedClient(
+            factory,
+            "document-api-integration",
+            "User");
     }
 
     [Fact]
@@ -47,7 +50,9 @@ public sealed class DocumentApiIntegrationTests : IClassFixture<DocumentApiFacto
         var documents = await listResponse.Content.ReadFromJsonAsync<DocumentRecord[]>();
 
         Assert.NotNull(documents);
-        Assert.Contains(documents, document => document.FileName == fileName);
+        Assert.Contains(documents, document =>
+            document.FileName == fileName &&
+            document.OwnerId == "document-api-integration");
     }
 
     [Theory]
