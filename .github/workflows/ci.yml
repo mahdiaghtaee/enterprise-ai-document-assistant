@@ -72,10 +72,10 @@ jobs:
         run: python -m pip install --requirement src/ai-service-python/requirements-dev.txt
 
       - name: Lint Python code
-        run: ruff check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py scripts/demo_flow.py
+        run: ruff check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py scripts/create_dev_token.py scripts/demo_flow.py
 
       - name: Check Python formatting
-        run: ruff format --check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py scripts/demo_flow.py
+        run: ruff format --check src/ai-service-python/app tests/ai-service-python scripts/check_coverage.py scripts/create_dev_token.py scripts/demo_flow.py
 
       - name: Run Python tests
         env:
@@ -146,7 +146,7 @@ jobs:
           test "$(query_database "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'document_chunks' AND a.attname = 'embedding' AND format_type(a.atttypid, a.atttypmod) = 'vector(8)';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_chunks' AND indexname = 'ix_document_chunks_embedding_cosine';")" = "1"
 
-      - name: Verify ingestion job schema
+      - name: Verify ingestion and ownership schema
         shell: bash
         run: |
           set -euo pipefail
@@ -168,18 +168,34 @@ jobs:
           test "$(query_database "SELECT count(*) FROM pg_constraint WHERE conname = 'ck_document_ingestion_jobs_status';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_ingestion_jobs' AND indexname = 'ux_document_ingestion_jobs_active_document';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_ingestion_jobs' AND indexname = 'ix_document_ingestion_jobs_claim';")" = "1"
+          test "$(query_database "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'owner_id' AND is_nullable = 'NO';")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_constraint WHERE conname = 'ck_documents_owner_id_not_blank';")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'documents' AND indexname = 'ix_documents_owner_created_at';")" = "1"
 
-      - name: Verify asynchronous ingestion and persistence across API restart
+      - name: Verify authenticated ingestion and owner-isolated retrieval across restart
         shell: bash
         run: |
           set -euo pipefail
 
+          token=$(python3 scripts/create_dev_token.py --user ci-user --role User)
+          other_token=$(python3 scripts/create_dev_token.py --user other-user --role User)
+          admin_token=$(python3 scripts/create_dev_token.py --user ci-admin --role Admin)
+          export token
+
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:5000/api/documents)" = "401"
+
           curl --fail --silent --show-error \
+            --header "Authorization: Bearer $token" \
+            http://localhost:5000/api/auth/me > /tmp/principal.json
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $token" \
             --form "file=@samples/contract-policy.txt;type=text/plain" \
             http://localhost:5000/api/documents/upload > /tmp/upload-response.json
 
           python3 - <<'PY'
           import json
+          import os
           import time
           from urllib import request
 
@@ -190,15 +206,16 @@ jobs:
           assert upload['ingestionJobId'] > 0, upload
           status_url = f"http://localhost:5000{upload['processingStatusUrl']}"
           deadline = time.monotonic() + 60
+          headers = {'Authorization': f"Bearer {os.environ['token']}"}
 
           while time.monotonic() < deadline:
-              with request.urlopen(status_url, timeout=10) as response:
+              status_request = request.Request(status_url, headers=headers)
+              with request.urlopen(status_request, timeout=10) as response:
                   status = json.load(response)
 
               if status['status'] == 'Completed':
                   assert status['isTerminal'] is True, status
                   break
-
               if status['status'] == 'Failed':
                   raise AssertionError(status)
 
@@ -208,23 +225,34 @@ jobs:
           PY
 
           assert_search_result() {
+            local bearer_token="$1"
+            local expected_count="$2"
+
             curl --fail --silent --show-error \
+              --header "Authorization: Bearer $bearer_token" \
               --header "Content-Type: application/json" \
               --data '{"query":"vendor contract approval process","topK":3}' \
               http://localhost:5000/api/documents/search > /tmp/search-response.json
 
-            python3 - <<'PY'
+            python3 - "$expected_count" <<'PY'
           import json
+          import sys
 
+          expected_count = int(sys.argv[1])
           with open('/tmp/search-response.json', encoding='utf-8') as response_file:
               response = json.load(response_file)
 
-          assert response['resultCount'] > 0, response
-          assert any(result['fileName'] == 'contract-policy.txt' for result in response['results']), response
+          if expected_count == 0:
+              assert response['resultCount'] == 0, response
+          else:
+              assert response['resultCount'] > 0, response
+              assert any(result['fileName'] == 'contract-policy.txt' for result in response['results']), response
           PY
           }
 
-          assert_search_result
+          assert_search_result "$token" 1
+          assert_search_result "$other_token" 0
+          assert_search_result "$admin_token" 1
 
           docker compose restart document-api
 
@@ -241,7 +269,9 @@ jobs:
             sleep 2
           done
 
-          assert_search_result
+          assert_search_result "$token" 1
+          assert_search_result "$other_token" 0
+          assert_search_result "$admin_token" 1
 
           chunk_count=$(docker compose exec -T postgres psql \
             --username "${POSTGRES_USER:-documents}" \
@@ -251,6 +281,15 @@ jobs:
             --no-align \
             --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM document_chunks;")
+
+          owned_document_count=$(docker compose exec -T postgres psql \
+            --username "${POSTGRES_USER:-documents}" \
+            --dbname "${POSTGRES_DB:-documents}" \
+            --no-psqlrc \
+            --tuples-only \
+            --no-align \
+            --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM documents WHERE owner_id = 'ci-user';")
 
           completed_job_count=$(docker compose exec -T postgres psql \
             --username "${POSTGRES_USER:-documents}" \
@@ -262,6 +301,7 @@ jobs:
             --command "SELECT count(*) FROM document_ingestion_jobs WHERE status = 'Completed';")
 
           test "$chunk_count" -gt 0
+          test "$owned_document_count" -eq 1
           test "$completed_job_count" -gt 0
 
       - name: Show container status and logs on failure
