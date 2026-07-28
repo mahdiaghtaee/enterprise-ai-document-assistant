@@ -6,6 +6,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+### Added
+
+- Fail-closed JWT bearer authentication with issuer, audience, signature, lifetime, and required-subject validation.
+- `User` and `Admin` role-based access policies.
+- Immutable document ownership derived from the authenticated JWT `sub` claim.
+- Owner-aware PostgreSQL and in-memory document repositories.
+- Owner-filtered processing status, semantic search, grounded answers, and source retrieval.
+- An idempotent PostgreSQL ownership migration with legacy-document backfill, nonblank constraint, and owner/date index.
+- A dependency-free local JWT token helper and authenticated Web UI flow.
+- Negative security tests for anonymous access, missing subject claims, and cross-user retrieval.
+
+### Changed
+
+- Every `/api/documents` endpoint now requires authentication; `/health` remains anonymous.
+- Document metadata and the initial ingestion job remain atomic while persisting the authenticated owner.
+- The background worker preserves ownership in semantic-index records.
+- Compose CI now verifies `401` behavior, user isolation, administrator visibility, owner persistence, and retrieval after API restart.
+- Documentation now distinguishes completed user-level ownership from remaining tenant, audit, encryption, and production identity-provider work.
+
+### Migration notes
+
+- Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql` automatically.
+- Existing PostgreSQL volumes require a reviewed manual application of the idempotent ownership migration after backup.
+- Existing documents are assigned to the explicit `legacy-system` owner.
+- API clients must send `Authorization: Bearer <token>` for document operations.
+
+### Known limitations
+
+- Tenant/workspace isolation, audit logging, token revocation, managed key rotation, encrypted storage, and centralized secret management are not implemented.
+- The repository signing key and token helper are for local development only.
+- The project remains unsuitable for confidential or regulated documents.
+
 ## 0.3.0 - 2026-07-27
 
 ### Added
