@@ -19,7 +19,7 @@ public sealed class SemanticSearchEndpointTests : IClassFixture<WebApplicationFa
     [Fact]
     public async Task Search_returns_bad_request_when_query_is_blank()
     {
-        var client = _factory.CreateClient();
+        using var client = JwtTestToken.CreateAuthenticatedClient(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/documents/search",
@@ -58,7 +58,7 @@ public sealed class SemanticSearchEndpointTests : IClassFixture<WebApplicationFa
             },
             CancellationToken.None);
 
-        var client = _factory.CreateClient();
+        using var client = JwtTestToken.CreateAuthenticatedClient(_factory);
         var response = await client.PostAsJsonAsync(
             "/api/documents/search",
             new DocumentSearchRequest("Enterprise AI search", TopK: 5));

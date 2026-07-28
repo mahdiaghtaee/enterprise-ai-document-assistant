@@ -1,10 +1,35 @@
+using System.Security.Claims;
 using EnterpriseDocumentAssistant.Api.Ai;
 using EnterpriseDocumentAssistant.Api.Documents;
+using EnterpriseDocumentAssistant.Api.Security;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter a JWT bearer token generated for local development or issued by the configured identity provider."
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecurityScheme
+        {
+            Reference = new OpenApiReference
+            {
+                Type = ReferenceType.SecurityScheme,
+                Id = "Bearer"
+            }
+        }] = Array.Empty<string>()
+    });
+});
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("LocalWebUi", policy =>
@@ -14,8 +39,10 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
+builder.Services.AddApplicationSecurity(builder.Configuration);
 builder.Services.AddSingleton<IDocumentRepository, PostgresDocumentRepository>();
-builder.Services.AddSingleton<IIngestionJobRepository, PostgresIngestionJobRepository>();
+builder.Services.AddSingleton<PostgresIngestionJobRepository>();
+builder.Services.AddSingleton<IIngestionJobRepository, OwnershipAwareIngestionJobRepository>();
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
@@ -45,6 +72,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("LocalWebUi");
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new
 {
@@ -53,24 +82,50 @@ app.MapGet("/health", () => Results.Ok(new
     checkedAt = DateTimeOffset.UtcNow
 }));
 
-app.MapGet("/api/documents", (IDocumentRepository repository) =>
+app.MapGet("/api/auth/me", (ClaimsPrincipal principal) =>
 {
-    return Results.Ok(repository.GetAll());
+    var access = DocumentAccessContext.FromPrincipal(principal);
+    return Results.Ok(new
+    {
+        userId = access.UserId,
+        roles = principal.FindAll("role").Select(claim => claim.Value).Distinct().ToArray(),
+        canAccessAllDocuments = access.CanAccessAllDocuments
+    });
+})
+.RequireAuthorization(AuthorizationPolicies.DocumentAccess);
+
+var documentApi = app.MapGroup("/api/documents")
+    .RequireAuthorization(AuthorizationPolicies.DocumentAccess);
+
+documentApi.MapGet("/", (ClaimsPrincipal principal, IDocumentRepository repository) =>
+{
+    var access = DocumentAccessContext.FromPrincipal(principal);
+    return Results.Ok(repository.GetAll(access.OwnerFilter));
 });
 
-app.MapPost("/api/documents", (CreateDocumentRequest request, IDocumentRepository repository) =>
+documentApi.MapPost("/", (
+    CreateDocumentRequest request,
+    ClaimsPrincipal principal,
+    IDocumentRepository repository) =>
 {
     if (string.IsNullOrWhiteSpace(request.FileName))
     {
         return Results.BadRequest(new { message = "File name is required." });
     }
 
-    var document = repository.Add(request.FileName, request.ContentType, 0, "metadata-only");
+    var access = DocumentAccessContext.FromPrincipal(principal);
+    var document = repository.Add(
+        request.FileName,
+        request.ContentType,
+        0,
+        "metadata-only",
+        access.UserId);
     return Results.Created($"/api/documents/{document.Id}", document);
 });
 
-app.MapPost("/api/documents/upload", async (
+documentApi.MapPost("/upload", async (
     IFormFile file,
+    ClaimsPrincipal principal,
     IDocumentStorage storage,
     IIngestionJobRepository jobRepository,
     CancellationToken cancellationToken) =>
@@ -87,6 +142,7 @@ app.MapPost("/api/documents/upload", async (
         });
     }
 
+    var access = DocumentAccessContext.FromPrincipal(principal);
     var storedDocument = await storage.SaveAsync(file, cancellationToken);
     DocumentIngestionCreationResult creationResult;
 
@@ -97,7 +153,8 @@ app.MapPost("/api/documents/upload", async (
                 storedDocument.OriginalFileName,
                 storedDocument.ContentType,
                 storedDocument.SizeInBytes,
-                storedDocument.StoragePath),
+                storedDocument.StoragePath,
+                OwnerId: access.UserId),
             cancellationToken);
     }
     catch
@@ -122,11 +179,21 @@ app.MapPost("/api/documents/upload", async (
 })
 .DisableAntiforgery();
 
-app.MapGet("/api/documents/{documentId:guid}/processing-status", async (
+documentApi.MapGet("/{documentId:guid}/processing-status", async (
     Guid documentId,
+    ClaimsPrincipal principal,
+    IDocumentRepository documentRepository,
     IIngestionJobRepository jobRepository,
     CancellationToken cancellationToken) =>
 {
+    var access = DocumentAccessContext.FromPrincipal(principal);
+    var document = documentRepository.GetById(documentId, access.OwnerFilter);
+
+    if (document is null)
+    {
+        return Results.NotFound(new { message = "No document was found." });
+    }
+
     var job = await jobRepository.GetLatestForDocumentAsync(documentId, cancellationToken);
 
     return job is null
@@ -134,8 +201,9 @@ app.MapGet("/api/documents/{documentId:guid}/processing-status", async (
         : Results.Ok(DocumentProcessingStatusResponse.FromJob(job));
 });
 
-app.MapPost("/api/documents/search", async (
+documentApi.MapPost("/search", async (
     DocumentSearchRequest request,
+    ClaimsPrincipal principal,
     IEmbeddingGenerator embeddingGenerator,
     ISemanticIndexStore semanticIndexStore,
     CancellationToken cancellationToken) =>
@@ -150,6 +218,7 @@ app.MapPost("/api/documents/search", async (
         return Results.BadRequest(new { message = "TopK must be greater than zero." });
     }
 
+    var access = DocumentAccessContext.FromPrincipal(principal);
     var embeddingResponse = await embeddingGenerator.GenerateAsync(
         new EmbeddingRequest(
             new[]
@@ -160,7 +229,7 @@ app.MapPost("/api/documents/search", async (
 
     var queryEmbedding = embeddingResponse.Vectors[0].Values;
     var results = await semanticIndexStore.SearchAsync(
-        new SemanticSearchRequest(queryEmbedding, request.TopK),
+        new SemanticSearchRequest(queryEmbedding, request.TopK, access.OwnerFilter),
         cancellationToken);
 
     var response = new DocumentSearchResponse(
@@ -176,8 +245,9 @@ app.MapPost("/api/documents/search", async (
     return Results.Ok(response);
 });
 
-app.MapPost("/api/documents/ask", async (
+documentApi.MapPost("/ask", async (
     DocumentAskRequest request,
+    ClaimsPrincipal principal,
     IEmbeddingGenerator embeddingGenerator,
     ISemanticIndexStore semanticIndexStore,
     CancellationToken cancellationToken) =>
@@ -194,6 +264,7 @@ app.MapPost("/api/documents/ask", async (
         return Results.BadRequest(new { message = "TopK must be greater than zero." });
     }
 
+    var access = DocumentAccessContext.FromPrincipal(principal);
     var embeddingResponse = await embeddingGenerator.GenerateAsync(
         new EmbeddingRequest(
             new[]
@@ -204,7 +275,7 @@ app.MapPost("/api/documents/ask", async (
 
     var questionEmbedding = embeddingResponse.Vectors[0].Values;
     var results = await semanticIndexStore.SearchAsync(
-        new SemanticSearchRequest(questionEmbedding, topK),
+        new SemanticSearchRequest(questionEmbedding, topK, access.OwnerFilter),
         cancellationToken);
 
     var sources = results.Select(result => new DocumentAskSource(

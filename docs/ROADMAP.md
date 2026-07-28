@@ -36,11 +36,11 @@ Delivered:
 - Docker Compose verification that retrieval survives an API-container restart;
 - migration, local setup, and troubleshooting documentation.
 
-## Milestone 2 — Reliable Background Indexing (Completed)
+## Milestone 2 — Reliable Background Indexing (Completed in v0.3.0)
 
 Goal: remove document processing from the synchronous upload request and provide durable execution, retries, recovery, and status reporting.
 
-Tracked by [issue #5](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/5).
+Tracked by completed [issue #5](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/5).
 
 Delivered:
 
@@ -57,23 +57,40 @@ Delivered:
 - graceful-shutdown return to the queue without consuming an attempt;
 - abandoned-processing recovery after a configurable timeout;
 - `202 Accepted` upload responses with durable job and status links;
-- a public processing-status endpoint with controlled failure details;
+- an authenticated processing-status endpoint with controlled failure details;
 - PostgreSQL integration tests for atomic persistence, claiming, completion, retry exhaustion, recovery, and latest status retrieval;
 - configuration and operations documentation.
 
-## Milestone 3 — Identity and Document Authorization
+## Milestone 3 — Identity and Document Authorization (Partially Delivered)
 
 Goal: prevent unauthorized document access.
 
-Planned work:
+Tracked by [issue #2](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/2) for the delivered authentication and RBAC boundary, with tenant architecture continuing under [issue #8](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/issues/8).
 
-- authentication;
-- role-based authorization;
-- workspace or tenant isolation;
-- document ownership and access policies;
-- authorization checks on upload, list, search, ask, and source retrieval;
+Delivered:
+
+- fail-closed JWT bearer authentication;
+- validated issuer, audience, signature, expiration, and required subject claim;
+- `User` and `Admin` roles;
+- authentication requirements on document upload, list, search, ask, and processing status;
+- document ownership persisted from the authenticated `sub` claim;
+- owner-aware PostgreSQL and in-memory document repositories;
+- owner-filtered semantic retrieval and source-aware answers;
+- administrator access across document owners;
+- idempotent ownership migration and legacy-document backfill;
+- local development token helper and authenticated Web UI/demo flow;
+- negative tests for anonymous requests, malformed authorization context, and cross-user retrieval;
+- authenticated Compose verification across API restart.
+
+Remaining work:
+
+- explicit tenant/workspace model;
+- tenant-aware authentication context;
+- database-enforced tenant isolation across all tables and queries;
+- tenant administration policies;
 - audit events for document access and administrative changes;
-- negative security tests.
+- external identity-provider integration, key rotation, and token revocation;
+- expanded negative tests for every tenant-aware operation.
 
 ## Milestone 4 — Provider Integrations
 
@@ -98,7 +115,7 @@ Planned work:
 
 - structured logs with correlation identifiers;
 - OpenTelemetry traces across HTTP, database, and background processing;
-- metrics for uploads, indexing duration, failures, and retrieval latency;
+- metrics for uploads, indexing duration, failures, authorization denials, and retrieval latency;
 - readiness and dependency health checks;
 - backup and restore documentation;
 - retention and deletion workflows;
@@ -119,7 +136,7 @@ Planned work:
 
 ## Explicitly Deferred
 
-The following work is deferred until persistence, security, and operational foundations are complete:
+The following work is deferred until persistence, tenant security, and operational foundations are complete:
 
 - multi-tenant billing;
 - complex administration dashboards;

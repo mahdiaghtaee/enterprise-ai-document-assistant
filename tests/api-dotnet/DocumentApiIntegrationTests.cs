@@ -11,11 +11,16 @@ namespace EnterpriseDocumentAssistant.Api.Tests;
 
 public sealed class DocumentApiIntegrationTests : IClassFixture<DocumentApiFactory>
 {
+    private readonly DocumentApiFactory _factory;
     private readonly HttpClient _client;
 
     public DocumentApiIntegrationTests(DocumentApiFactory factory)
     {
-        _client = factory.CreateClient();
+        _factory = factory;
+        _client = JwtTestToken.CreateAuthenticatedClient(
+            factory,
+            "document-api-integration",
+            "User");
     }
 
     [Fact]
@@ -47,7 +52,30 @@ public sealed class DocumentApiIntegrationTests : IClassFixture<DocumentApiFacto
         var documents = await listResponse.Content.ReadFromJsonAsync<DocumentRecord[]>();
 
         Assert.NotNull(documents);
-        Assert.Contains(documents, document => document.FileName == fileName);
+        Assert.Contains(documents, document =>
+            document.FileName == fileName &&
+            document.OwnerId == "document-api-integration");
+    }
+
+    [Fact]
+    public async Task Document_list_does_not_return_another_users_document()
+    {
+        var fileName = $"private-{Guid.NewGuid():N}.txt";
+        var createResponse = await _client.PostAsJsonAsync(
+            "/api/documents",
+            new CreateDocumentRequest(fileName, "text/plain"));
+        createResponse.EnsureSuccessStatusCode();
+
+        using var otherClient = JwtTestToken.CreateAuthenticatedClient(
+            _factory,
+            "other-integration-user",
+            "User");
+        var listResponse = await otherClient.GetAsync("/api/documents");
+        listResponse.EnsureSuccessStatusCode();
+        var documents = await listResponse.Content.ReadFromJsonAsync<DocumentRecord[]>();
+
+        Assert.NotNull(documents);
+        Assert.DoesNotContain(documents, document => document.FileName == fileName);
     }
 
     [Theory]

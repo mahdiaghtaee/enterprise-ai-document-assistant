@@ -17,7 +17,7 @@ public sealed class AskEndpointTests : IClassFixture<WebApplicationFactory<Progr
     [Fact]
     public async Task Ask_ReturnsBadRequest_WhenQuestionIsEmpty()
     {
-        using var client = _factory.CreateClient();
+        using var client = JwtTestToken.CreateAuthenticatedClient(_factory);
 
         var response = await client.PostAsJsonAsync("/api/documents/ask", new
         {
@@ -31,7 +31,7 @@ public sealed class AskEndpointTests : IClassFixture<WebApplicationFactory<Progr
     [Fact]
     public async Task Ask_ReturnsBadRequest_WhenTopKIsInvalid()
     {
-        using var client = _factory.CreateClient();
+        using var client = JwtTestToken.CreateAuthenticatedClient(_factory);
 
         var response = await client.PostAsJsonAsync("/api/documents/ask", new
         {
@@ -45,7 +45,7 @@ public sealed class AskEndpointTests : IClassFixture<WebApplicationFactory<Progr
     [Fact]
     public async Task Ask_ReturnsFallbackAnswer_WhenNoDocumentsAreIndexed()
     {
-        using var client = _factory.CreateClient();
+        using var client = JwtTestToken.CreateAuthenticatedClient(_factory);
 
         var response = await client.PostAsJsonAsync("/api/documents/ask", new
         {

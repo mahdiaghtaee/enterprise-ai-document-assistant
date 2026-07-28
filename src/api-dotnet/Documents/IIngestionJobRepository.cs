@@ -47,7 +47,8 @@ public sealed record CreateDocumentIngestionRequest(
     string? ContentType,
     long SizeInBytes,
     string StoragePath,
-    int MaxAttempts = DocumentIngestionDefaults.MaxAttempts);
+    int MaxAttempts = DocumentIngestionDefaults.MaxAttempts,
+    string OwnerId = DocumentOwnership.LegacyOwnerId);
 
 public sealed record DocumentIngestionCreationResult(
     DocumentRecord Document,

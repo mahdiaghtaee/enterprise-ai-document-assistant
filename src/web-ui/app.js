@@ -2,6 +2,10 @@ const apiBaseUrl = localStorage.getItem("apiBaseUrl") || "http://localhost:5000"
 
 const healthButton = document.querySelector("#healthButton");
 const healthStatus = document.querySelector("#healthStatus");
+const tokenInput = document.querySelector("#tokenInput");
+const saveTokenButton = document.querySelector("#saveTokenButton");
+const clearTokenButton = document.querySelector("#clearTokenButton");
+const tokenStatus = document.querySelector("#tokenStatus");
 const fileInput = document.querySelector("#fileInput");
 const uploadButton = document.querySelector("#uploadButton");
 const uploadResult = document.querySelector("#uploadResult");
@@ -17,6 +21,29 @@ const sourceViewer = document.querySelector("#sourceViewer");
 
 const processingPollIntervalMs = 1000;
 const processingTimeoutMs = 60000;
+
+function getToken() {
+  return localStorage.getItem("documentApiJwt") || "";
+}
+
+function updateTokenStatus() {
+  const token = getToken();
+  tokenInput.value = token;
+  tokenStatus.textContent = token ? "Token saved" : "No token saved";
+}
+
+function authorizationHeaders(extraHeaders = {}) {
+  const token = getToken();
+
+  if (!token) {
+    throw new Error("Save a JWT bearer token before using document endpoints.");
+  }
+
+  return {
+    ...extraHeaders,
+    Authorization: `Bearer ${token}`,
+  };
+}
 
 function printError(target, error) {
   target.classList.add("error-state");
@@ -47,7 +74,9 @@ async function waitForDocumentProcessing(statusPath) {
   const deadline = Date.now() + processingTimeoutMs;
 
   while (Date.now() < deadline) {
-    const response = await fetch(`${apiBaseUrl}${statusPath}`);
+    const response = await fetch(`${apiBaseUrl}${statusPath}`, {
+      headers: authorizationHeaders(),
+    });
     const status = await parseResponse(response);
     uploadResult.textContent = JSON.stringify(status, null, 2);
     await loadDocuments();
@@ -90,7 +119,7 @@ function renderSources(target, sources) {
 
   if (!sources.length) {
     target.classList.add("empty-state");
-    target.textContent = "No matching sources were returned.";
+    target.textContent = "No matching authorized sources were returned.";
     return;
   }
 
@@ -120,7 +149,7 @@ function renderDocuments(documents) {
 
   if (!documents.length) {
     documentsResult.classList.add("empty-state");
-    documentsResult.textContent = "No documents have been uploaded yet.";
+    documentsResult.textContent = "No authorized documents have been uploaded yet.";
     return;
   }
 
@@ -149,7 +178,9 @@ async function loadDocuments() {
   documentsResult.textContent = "Loading documents...";
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/documents`);
+    const response = await fetch(`${apiBaseUrl}/api/documents`, {
+      headers: authorizationHeaders(),
+    });
     renderDocuments(await parseResponse(response));
   } catch (error) {
     printError(documentsResult, error);
@@ -166,6 +197,26 @@ healthButton.addEventListener("click", async () => {
   } catch (error) {
     healthStatus.textContent = "API is not reachable";
   }
+});
+
+saveTokenButton.addEventListener("click", async () => {
+  const token = tokenInput.value.trim();
+
+  if (!token) {
+    tokenStatus.textContent = "Token is required";
+    return;
+  }
+
+  localStorage.setItem("documentApiJwt", token);
+  updateTokenStatus();
+  await loadDocuments();
+});
+
+clearTokenButton.addEventListener("click", () => {
+  localStorage.removeItem("documentApiJwt");
+  updateTokenStatus();
+  documentsResult.className = "document-list empty-state";
+  documentsResult.textContent = "Save a token to load documents.";
 });
 
 refreshDocumentsButton.addEventListener("click", loadDocuments);
@@ -186,6 +237,7 @@ uploadButton.addEventListener("click", async () => {
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/upload`, {
       method: "POST",
+      headers: authorizationHeaders(),
       body: formData,
     });
 
@@ -212,7 +264,7 @@ searchButton.addEventListener("click", async () => {
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/search`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authorizationHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         query: searchInput.value,
         topK: 3,
@@ -233,7 +285,7 @@ askButton.addEventListener("click", async () => {
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/ask`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authorizationHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         question: questionInput.value,
         topK: 3,
@@ -257,4 +309,9 @@ askButton.addEventListener("click", async () => {
   }
 });
 
-loadDocuments();
+updateTokenStatus();
+if (getToken()) {
+  loadDocuments();
+} else {
+  documentsResult.textContent = "Save a token to load documents.";
+}

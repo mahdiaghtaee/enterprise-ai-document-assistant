@@ -1,5 +1,20 @@
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
+public static class DocumentOwnership
+{
+    public const string LegacyOwnerId = "legacy-system";
+
+    public static string Normalize(string ownerId)
+    {
+        if (string.IsNullOrWhiteSpace(ownerId))
+        {
+            throw new ArgumentException("Document owner id is required.", nameof(ownerId));
+        }
+
+        return ownerId.Trim();
+    }
+}
+
 public sealed record DocumentRecord(
     Guid Id,
     string FileName,
@@ -7,7 +22,8 @@ public sealed record DocumentRecord(
     long SizeInBytes,
     string StoragePath,
     string Status,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string OwnerId = DocumentOwnership.LegacyOwnerId);
 
 public sealed record CreateDocumentRequest(
     string FileName,

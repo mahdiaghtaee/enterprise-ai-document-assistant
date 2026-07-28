@@ -12,7 +12,8 @@ public sealed record SemanticIndexRecord(
     string FileName,
     int ChunkIndex,
     string Text,
-    IReadOnlyList<float> Embedding)
+    IReadOnlyList<float> Embedding,
+    string OwnerId = DocumentOwnership.LegacyOwnerId)
 {
     public int Dimensions => Embedding.Count;
 
@@ -42,12 +43,15 @@ public sealed record SemanticIndexRecord(
         {
             throw new ArgumentException("Embedding values are required.", nameof(Embedding));
         }
+
+        DocumentOwnership.Normalize(OwnerId);
     }
 }
 
 public sealed record SemanticSearchRequest(
     IReadOnlyList<float> QueryEmbedding,
-    int TopK = 5)
+    int TopK = 5,
+    string? OwnerId = null)
 {
     public void Validate()
     {
@@ -59,6 +63,11 @@ public sealed record SemanticSearchRequest(
         if (TopK <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(TopK), "TopK must be greater than zero.");
+        }
+
+        if (OwnerId is not null)
+        {
+            DocumentOwnership.Normalize(OwnerId);
         }
     }
 }
@@ -89,6 +98,7 @@ public sealed class InMemorySemanticIndexStore : ISemanticIndexStore
 
         IReadOnlyList<SemanticSearchResult> results = _records
             .Where(record => record.Dimensions == request.QueryEmbedding.Count)
+            .Where(record => request.OwnerId is null || record.OwnerId == request.OwnerId)
             .Select(record => new SemanticSearchResult(record, CalculateScore(request.QueryEmbedding, record.Embedding)))
             .OrderByDescending(result => result.Score)
             .ThenBy(result => result.Record.FileName, StringComparer.OrdinalIgnoreCase)

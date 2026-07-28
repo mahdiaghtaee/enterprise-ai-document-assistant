@@ -81,10 +81,12 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
                    documents.file_name,
                    chunks.chunk_index,
                    chunks.content,
+                   documents.owner_id,
                    chunks.embedding::text,
                    CAST(1 - (chunks.embedding <=> CAST(@queryEmbedding AS vector)) AS real) AS score
             FROM document_chunks AS chunks
             INNER JOIN documents ON documents.id = chunks.document_id
+            WHERE @ownerId IS NULL OR documents.owner_id = @ownerId
             ORDER BY chunks.embedding <=> CAST(@queryEmbedding AS vector),
                      LOWER(documents.file_name),
                      chunks.chunk_index
@@ -96,6 +98,8 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.Add("queryEmbedding", NpgsqlDbType.Text).Value = ToVectorLiteral(request.QueryEmbedding);
         command.Parameters.Add("topK", NpgsqlDbType.Integer).Value = request.TopK;
+        command.Parameters.Add("ownerId", NpgsqlDbType.Text).Value =
+            request.OwnerId is null ? DBNull.Value : DocumentOwnership.Normalize(request.OwnerId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var results = new List<SemanticSearchResult>();
@@ -107,9 +111,9 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
                 reader.GetString(1),
                 reader.GetInt32(2),
                 reader.GetString(3),
-                ParseVector(reader.GetString(4)));
-
-            results.Add(new SemanticSearchResult(record, reader.GetFloat(5)));
+                ParseVector(reader.GetString(5)),
+                reader.GetString(4));
+            results.Add(new SemanticSearchResult(record, reader.GetFloat(6)));
         }
 
         return results;
