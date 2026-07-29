@@ -86,7 +86,9 @@ public sealed class DocumentIngestionWorker : BackgroundService
         DocumentIngestionJob job,
         CancellationToken stoppingToken)
     {
-        var document = _documentRepository.GetById(job.DocumentId);
+        var document = _documentRepository.GetById(
+            job.DocumentId,
+            bypassTenantIsolation: true);
         if (document is null)
         {
             await _jobRepository.MarkFailedOrRetryAsync(

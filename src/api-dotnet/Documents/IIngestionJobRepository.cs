@@ -1,3 +1,5 @@
+using EnterpriseDocumentAssistant.Api.Security;
+
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public interface IIngestionJobRepository
@@ -48,7 +50,8 @@ public sealed record CreateDocumentIngestionRequest(
     long SizeInBytes,
     string StoragePath,
     int MaxAttempts = DocumentIngestionDefaults.MaxAttempts,
-    string OwnerId = DocumentOwnership.LegacyOwnerId);
+    string OwnerId = DocumentOwnership.LegacyOwnerId,
+    string TenantId = TenantIsolation.LegacyTenantId);
 
 public sealed record DocumentIngestionCreationResult(
     DocumentRecord Document,

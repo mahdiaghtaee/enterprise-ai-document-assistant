@@ -16,7 +16,7 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Enter a JWT bearer token generated for local development or issued by the configured identity provider."
+        Description = "Enter a JWT containing sub, role, and tenant_id claims."
     });
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -41,8 +41,7 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddApplicationSecurity(builder.Configuration);
 builder.Services.AddSingleton<IDocumentRepository, PostgresDocumentRepository>();
-builder.Services.AddSingleton<PostgresIngestionJobRepository>();
-builder.Services.AddSingleton<IIngestionJobRepository, OwnershipAwareIngestionJobRepository>();
+builder.Services.AddSingleton<IIngestionJobRepository, PostgresIngestionJobRepository>();
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
@@ -52,7 +51,8 @@ builder.Services.AddSingleton<IDocumentIngestionProcessor, DocumentIngestionProc
 builder.Services.Configure<DocumentIngestionWorkerOptions>(
     builder.Configuration.GetSection("IngestionWorker"));
 
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("PostgresPrivileged")) ||
+    !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
 {
     builder.Services.AddHostedService<DocumentIngestionWorker>();
 }
@@ -88,8 +88,10 @@ app.MapGet("/api/auth/me", (ClaimsPrincipal principal) =>
     return Results.Ok(new
     {
         userId = access.UserId,
+        tenantId = access.TenantId,
         roles = principal.FindAll("role").Select(claim => claim.Value).Distinct().ToArray(),
-        canAccessAllDocuments = access.CanAccessAllDocuments
+        canAccessAllTenants = access.CanAccessAllTenants,
+        canAccessAllDocumentsInTenant = access.CanAccessAllDocumentsInTenant
     });
 })
 .RequireAuthorization(AuthorizationPolicies.DocumentAccess);
@@ -100,7 +102,10 @@ var documentApi = app.MapGroup("/api/documents")
 documentApi.MapGet("/", (ClaimsPrincipal principal, IDocumentRepository repository) =>
 {
     var access = DocumentAccessContext.FromPrincipal(principal);
-    return Results.Ok(repository.GetAll(access.OwnerFilter));
+    return Results.Ok(repository.GetAll(
+        ownerId: access.OwnerFilter,
+        tenantId: access.TenantFilter,
+        bypassTenantIsolation: access.UsePrivilegedDatabase));
 });
 
 documentApi.MapPost("/", (
@@ -119,7 +124,8 @@ documentApi.MapPost("/", (
         request.ContentType,
         0,
         "metadata-only",
-        access.UserId);
+        ownerId: access.UserId,
+        tenantId: access.TenantId);
     return Results.Created($"/api/documents/{document.Id}", document);
 });
 
@@ -154,7 +160,8 @@ documentApi.MapPost("/upload", async (
                 storedDocument.ContentType,
                 storedDocument.SizeInBytes,
                 storedDocument.StoragePath,
-                OwnerId: access.UserId),
+                OwnerId: access.UserId,
+                TenantId: access.TenantId),
             cancellationToken);
     }
     catch
@@ -187,7 +194,11 @@ documentApi.MapGet("/{documentId:guid}/processing-status", async (
     CancellationToken cancellationToken) =>
 {
     var access = DocumentAccessContext.FromPrincipal(principal);
-    var document = documentRepository.GetById(documentId, access.OwnerFilter);
+    var document = documentRepository.GetById(
+        documentId,
+        ownerId: access.OwnerFilter,
+        tenantId: access.TenantFilter,
+        bypassTenantIsolation: access.UsePrivilegedDatabase);
 
     if (document is null)
     {
@@ -229,7 +240,12 @@ documentApi.MapPost("/search", async (
 
     var queryEmbedding = embeddingResponse.Vectors[0].Values;
     var results = await semanticIndexStore.SearchAsync(
-        new SemanticSearchRequest(queryEmbedding, request.TopK, access.OwnerFilter),
+        new SemanticSearchRequest(
+            queryEmbedding,
+            request.TopK,
+            OwnerId: access.OwnerFilter,
+            TenantId: access.TenantFilter,
+            BypassTenantIsolation: access.UsePrivilegedDatabase),
         cancellationToken);
 
     var response = new DocumentSearchResponse(
@@ -275,7 +291,12 @@ documentApi.MapPost("/ask", async (
 
     var questionEmbedding = embeddingResponse.Vectors[0].Values;
     var results = await semanticIndexStore.SearchAsync(
-        new SemanticSearchRequest(questionEmbedding, topK, access.OwnerFilter),
+        new SemanticSearchRequest(
+            questionEmbedding,
+            topK,
+            OwnerId: access.OwnerFilter,
+            TenantId: access.TenantFilter,
+            BypassTenantIsolation: access.UsePrivilegedDatabase),
         cancellationToken);
 
     var sources = results.Select(result => new DocumentAskSource(

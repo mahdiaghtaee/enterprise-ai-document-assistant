@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
+using EnterpriseDocumentAssistant.Api.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
 
@@ -16,15 +17,21 @@ internal static class JwtTestToken
     public static HttpClient CreateAuthenticatedClient(
         WebApplicationFactory<Program> factory,
         string userId = "legacy-system",
-        string role = "User")
+        string role = "User",
+        string tenantId = TenantIsolation.LegacyTenantId)
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", Create(userId, role));
+            new AuthenticationHeaderValue("Bearer", Create(userId, role, tenantId));
         return client;
     }
 
-    public static string Create(string userId, string role, bool includeSubject = true)
+    public static string Create(
+        string userId,
+        string role,
+        string tenantId = TenantIsolation.LegacyTenantId,
+        bool includeSubject = true,
+        bool includeTenant = true)
     {
         var claims = new List<Claim>
         {
@@ -35,6 +42,11 @@ internal static class JwtTestToken
         if (includeSubject)
         {
             claims.Add(new Claim(JwtRegisteredClaimNames.Sub, userId));
+        }
+
+        if (includeTenant)
+        {
+            claims.Add(new Claim(TenantClaims.TenantId, tenantId));
         }
 
         var credentials = new SigningCredentials(

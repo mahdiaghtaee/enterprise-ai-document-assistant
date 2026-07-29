@@ -6,13 +6,20 @@ The ASP.NET Core document API requires a signed JWT bearer token for every docum
 
 A valid token must contain:
 
-- `sub`: the stable user identifier used as the document owner;
-- `role`: either `User` or `Admin`;
+- `sub`: stable user identifier used as the document owner;
+- `tenant_id`: stable organization or workspace identifier;
+- `role`: `User`, `Admin`, or `PlatformAdmin`;
 - `iss`, `aud`, `nbf`, and `exp` values accepted by the configured JWT validation parameters.
 
-`User` tokens can create, list, monitor, search, and ask against documents whose `owner_id` matches the token subject. `Admin` tokens can access documents across owners. Requests without a valid token return `401`. Authenticated tokens without a subject claim fail the document-access policy with `403`.
+Role behavior:
 
-Foreign document identifiers are returned as `404` to ordinary users. This avoids confirming whether another user's document exists.
+- `User` can access only documents whose `owner_id` matches `sub` and whose `tenant_id` matches the token;
+- `Admin` can access all document owners inside the token tenant, but cannot cross tenants;
+- `PlatformAdmin` can access documents across tenants through the explicit privileged database path.
+
+Requests without a valid token return `401`. Authenticated tokens missing `sub`, `tenant_id`, or a supported role fail the document-access policy with `403`.
+
+Foreign document identifiers are returned as `404` outside the caller's authorized owner or tenant scope. This avoids confirming whether another user's or organization's document exists.
 
 ## Protected endpoints
 
@@ -26,18 +33,24 @@ Foreign document identifiers are returned as `404` to ordinary users. This avoid
 
 `GET /health` is intentionally anonymous.
 
-## Local development token
+## Local development tokens
 
-Start the stack, then generate a one-hour development token:
+Start the stack, then generate a one-hour user token:
 
 ```bash
-python scripts/create_dev_token.py --user demo-user --role User
+python scripts/create_dev_token.py --user demo-user --tenant demo-tenant --role User
 ```
 
-Generate an administrator token only for local authorization testing:
+Generate a tenant administrator token:
 
 ```bash
-python scripts/create_dev_token.py --user demo-admin --role Admin
+python scripts/create_dev_token.py --user demo-admin --tenant demo-tenant --role Admin
+```
+
+Generate a platform administrator token only for explicit cross-tenant tests:
+
+```bash
+python scripts/create_dev_token.py --user platform-admin --tenant platform --role PlatformAdmin
 ```
 
 Use the token in Swagger's **Authorize** dialog, paste it into the Web UI authentication panel, or send it as an HTTP header:
@@ -48,7 +61,7 @@ Authorization: Bearer <token>
 
 The helper is not an identity provider and the repository signing key is development-only. Never reuse it in a deployed environment.
 
-## Configuration
+## JWT configuration
 
 The API reads:
 
@@ -58,32 +71,30 @@ The API reads:
 
 The Development environment includes explicit local values. A non-development deployment must supply its own values through environment variables or a secret manager. Missing or weak JWT configuration prevents application startup.
 
-A production deployment should use a real identity provider and an asymmetric signing strategy or managed key lifecycle rather than distributing a shared HMAC key.
+A production deployment should use a real identity provider and managed asymmetric keys or a controlled key lifecycle. It must issue stable, non-reassignable user and tenant identifiers.
 
-## Database ownership migration
+## Ownership and tenant migrations
 
-`infra/postgres/init/zzzz-document-ownership.sql` adds `documents.owner_id`, backfills existing rows to `legacy-system`, makes the value required, rejects blank owners, and adds an owner/date index.
+`infra/postgres/init/zzzz-document-ownership.sql` adds `documents.owner_id`, backfills existing rows to `legacy-system`, and makes ownership required.
 
-PostgreSQL entrypoint scripts run only for a fresh database volume. For an existing volume:
+`infra/postgres/init/zzzzz-tenant-isolation.sql` adds tenant identity to documents, chunks, and ingestion jobs; backfills existing rows to `legacy-tenant`; creates runtime database roles; and enables forced Row-Level Security.
 
-1. back up the database;
-2. review the migration;
-3. apply it with `ON_ERROR_STOP` enabled;
-4. verify that every document has a nonblank owner;
-5. deploy the API change.
-
-Existing pre-authentication documents belong to `legacy-system`. A normal user cannot see them unless issued that subject; an `Admin` can review them.
+PostgreSQL entrypoint scripts run only for a fresh database volume. Existing databases require a reviewed manual migration after backup. Production data should be mapped to real tenants before deployment rather than left under the legacy tenant.
 
 ## Authorization invariants
 
-- ownership is assigned from the authenticated `sub`, never from request JSON or form fields;
-- document metadata and the initial ingestion job are still committed atomically;
-- background processing preserves the owner while creating semantic-index records;
-- PostgreSQL and in-memory search apply the same owner filter;
-- `Admin` is the only role that bypasses the owner filter;
-- source text returned by Search and Ask is subject to the same filter as document listing;
-- negative tests cover unauthenticated access, missing subjects, and cross-user retrieval.
+- user and tenant identity are assigned from validated JWT claims, never request JSON or form fields;
+- document metadata and the initial ingestion job are committed atomically with owner and tenant identity;
+- background processing preserves both values while creating semantic-index records;
+- `User` applies both tenant and owner scope;
+- `Admin` bypasses only the owner filter inside its tenant;
+- only `PlatformAdmin` uses the privileged cross-tenant path;
+- PostgreSQL Row-Level Security independently enforces tenant scope for runtime queries and writes;
+- source text returned by Search and Ask is subject to the same scope as document listing;
+- negative tests cover anonymous access, missing claims, cross-user access, cross-tenant access, and direct database writes.
+
+See [Tenant Isolation](TENANT_ISOLATION.md) for the database roles, RLS policies, session context, migration, and verification details.
 
 ## Remaining production gaps
 
-This boundary does not complete tenant/workspace isolation, audit logging, encrypted file storage, centralized secret management, token revocation, key rotation, or external identity-provider integration. The project must not be used for confidential or regulated documents until those controls and operational reviews are complete.
+This boundary does not complete tenant provisioning, membership and invitation workflows, audit logging, encrypted file storage, centralized secret management, token revocation, key rotation, or external identity-provider synchronization. The project must not be used for confidential or regulated documents until those controls and operational reviews are complete.
