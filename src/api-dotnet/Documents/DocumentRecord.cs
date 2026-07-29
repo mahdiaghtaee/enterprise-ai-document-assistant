@@ -1,3 +1,5 @@
+using EnterpriseDocumentAssistant.Api.Security;
+
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public static class DocumentOwnership
@@ -23,6 +25,7 @@ public sealed record DocumentRecord(
     string StoragePath,
     string Status,
     DateTimeOffset CreatedAt,
+    string TenantId = TenantIsolation.LegacyTenantId,
     string OwnerId = DocumentOwnership.LegacyOwnerId);
 
 public sealed record CreateDocumentRequest(
