@@ -1,3 +1,5 @@
+using EnterpriseDocumentAssistant.Api.Security;
+
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public sealed class InMemoryDocumentRepository : IDocumentRepository
@@ -5,22 +7,31 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
     private readonly List<DocumentRecord> _documents = [];
     private readonly object _lock = new();
 
-    public IReadOnlyCollection<DocumentRecord> GetAll(string? ownerId = null)
+    public IReadOnlyCollection<DocumentRecord> GetAll(
+        string? tenantId = null,
+        string? ownerId = null,
+        bool bypassTenantIsolation = false)
     {
         lock (_lock)
         {
             return _documents
+                .Where(document => bypassTenantIsolation || tenantId is null || document.TenantId == tenantId)
                 .Where(document => ownerId is null || document.OwnerId == ownerId)
                 .ToArray();
         }
     }
 
-    public DocumentRecord? GetById(Guid documentId, string? ownerId = null)
+    public DocumentRecord? GetById(
+        Guid documentId,
+        string? tenantId = null,
+        string? ownerId = null,
+        bool bypassTenantIsolation = false)
     {
         lock (_lock)
         {
             return _documents.FirstOrDefault(document =>
                 document.Id == documentId &&
+                (bypassTenantIsolation || tenantId is null || document.TenantId == tenantId) &&
                 (ownerId is null || document.OwnerId == ownerId));
         }
     }
@@ -30,6 +41,7 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
         string? contentType,
         long sizeInBytes,
         string storagePath,
+        string tenantId = TenantIsolation.LegacyTenantId,
         string ownerId = DocumentOwnership.LegacyOwnerId)
     {
         var document = new DocumentRecord(
@@ -40,6 +52,7 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
             storagePath,
             "uploaded",
             DateTimeOffset.UtcNow,
+            TenantIsolation.Normalize(tenantId),
             DocumentOwnership.Normalize(ownerId));
 
         lock (_lock)
