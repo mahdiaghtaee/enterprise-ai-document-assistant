@@ -136,8 +136,8 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
                 reader.GetInt32(2),
                 reader.GetString(3),
                 ParseVector(reader.GetString(6)),
-                reader.GetString(4),
-                reader.GetString(5));
+                reader.GetString(5),
+                reader.GetString(4));
             results.Add(new SemanticSearchResult(record, reader.GetFloat(7)));
         }
 
