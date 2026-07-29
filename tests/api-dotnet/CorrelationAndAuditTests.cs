@@ -55,6 +55,20 @@ public sealed class CorrelationAndAuditTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public void Log_correlation_id_is_deterministic_and_does_not_embed_external_input()
+    {
+        const string externalCorrelationId = "external-correlation-123";
+
+        var first = CorrelationIdMiddleware.CreateLogCorrelationId(externalCorrelationId);
+        var second = CorrelationIdMiddleware.CreateLogCorrelationId(externalCorrelationId);
+
+        Assert.Equal(first, second);
+        Assert.Equal(32, first.Length);
+        Assert.DoesNotContain(externalCorrelationId, first, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("^[0-9A-F]{32}$", first);
+    }
+
+    [Fact]
     public async Task Ordinary_user_cannot_read_audit_events()
     {
         using var client = JwtTestToken.CreateAuthenticatedClient(
