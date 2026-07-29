@@ -1,4 +1,5 @@
 using System.Globalization;
+using EnterpriseDocumentAssistant.Api.Security;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -6,12 +7,15 @@ namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
 {
-    private readonly string _connectionString;
+    private readonly string _tenantConnectionString;
+    private readonly string _privilegedConnectionString;
 
     public PostgresSemanticIndexStore(IConfiguration configuration)
     {
-        _connectionString = configuration.GetConnectionString("Postgres")
+        _tenantConnectionString = configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
+        _privilegedConnectionString = configuration.GetConnectionString("PostgresPrivileged")
+            ?? _tenantConnectionString;
     }
 
     public async Task UpsertAsync(
@@ -34,22 +38,24 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
 
         const string sql = """
             INSERT INTO document_chunks
-                (document_id, chunk_index, content, embedding, updated_at)
+                (document_id, tenant_id, chunk_index, content, embedding, updated_at)
             VALUES
-                (@documentId, @chunkIndex, @content, CAST(@embedding AS vector), CURRENT_TIMESTAMP)
+                (@documentId, @tenantId, @chunkIndex, @content, CAST(@embedding AS vector), CURRENT_TIMESTAMP)
             ON CONFLICT (document_id, chunk_index)
             DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 content = EXCLUDED.content,
                 embedding = EXCLUDED.embedding,
                 updated_at = CURRENT_TIMESTAMP;
             """;
 
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection, transaction);
 
         var documentIdParameter = command.Parameters.Add("documentId", NpgsqlDbType.Uuid);
+        var tenantIdParameter = command.Parameters.Add("tenantId", NpgsqlDbType.Text);
         var chunkIndexParameter = command.Parameters.Add("chunkIndex", NpgsqlDbType.Integer);
         var contentParameter = command.Parameters.Add("content", NpgsqlDbType.Text);
         var embeddingParameter = command.Parameters.Add("embedding", NpgsqlDbType.Text);
@@ -57,6 +63,7 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
         foreach (var record in records)
         {
             documentIdParameter.Value = record.DocumentId;
+            tenantIdParameter.Value = TenantIsolation.Normalize(record.TenantId);
             chunkIndexParameter.Value = record.ChunkIndex;
             contentParameter.Value = record.Text;
             embeddingParameter.Value = ToVectorLiteral(record.Embedding);
@@ -81,11 +88,14 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
                    documents.file_name,
                    chunks.chunk_index,
                    chunks.content,
+                   documents.tenant_id,
                    documents.owner_id,
                    chunks.embedding::text,
                    CAST(1 - (chunks.embedding <=> CAST(@queryEmbedding AS vector)) AS real) AS score
             FROM document_chunks AS chunks
-            INNER JOIN documents ON documents.id = chunks.document_id
+            INNER JOIN documents
+                ON documents.id = chunks.document_id
+               AND documents.tenant_id = chunks.tenant_id
             WHERE @ownerId IS NULL OR documents.owner_id = @ownerId
             ORDER BY chunks.embedding <=> CAST(@queryEmbedding AS vector),
                      LOWER(documents.file_name),
@@ -93,9 +103,23 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
             LIMIT @topK;
             """;
 
-        await using var connection = new NpgsqlConnection(_connectionString);
+        var connectionString = request.BypassTenantIsolation
+            ? _privilegedConnectionString
+            : _tenantConnectionString;
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        if (!request.BypassTenantIsolation)
+        {
+            await PostgresTenantSession.ApplyAsync(
+                connection,
+                transaction,
+                request.TenantId ?? string.Empty,
+                cancellationToken);
+        }
+
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.Add("queryEmbedding", NpgsqlDbType.Text).Value = ToVectorLiteral(request.QueryEmbedding);
         command.Parameters.Add("topK", NpgsqlDbType.Integer).Value = request.TopK;
         command.Parameters.Add("ownerId", NpgsqlDbType.Text).Value =
@@ -111,11 +135,14 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
                 reader.GetString(1),
                 reader.GetInt32(2),
                 reader.GetString(3),
-                ParseVector(reader.GetString(5)),
-                reader.GetString(4));
-            results.Add(new SemanticSearchResult(record, reader.GetFloat(6)));
+                ParseVector(reader.GetString(6)),
+                reader.GetString(4),
+                reader.GetString(5));
+            results.Add(new SemanticSearchResult(record, reader.GetFloat(7)));
         }
 
+        await reader.DisposeAsync();
+        await transaction.CommitAsync(cancellationToken);
         return results;
     }
 
