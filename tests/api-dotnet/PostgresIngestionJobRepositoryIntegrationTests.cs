@@ -28,10 +28,14 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
                 $"atomic-{marker}.txt",
                 "text/plain",
                 128,
-                $"/tmp/{marker}.txt"),
+                $"/tmp/{marker}.txt",
+                TenantId: "tenant-a",
+                OwnerId: "user-a"),
             CancellationToken.None);
 
         Assert.Equal(result.Document.Id, result.Job.DocumentId);
+        Assert.Equal("tenant-a", result.Document.TenantId);
+        Assert.Equal("user-a", result.Document.OwnerId);
         Assert.Equal(DocumentIngestionStatus.Pending, result.Job.Status);
         Assert.Equal(0, result.Job.AttemptCount);
         Assert.Equal(DocumentIngestionDefaults.MaxAttempts, result.Job.MaxAttempts);
@@ -60,7 +64,9 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
                     "text/plain",
                     128,
                     storagePath,
-                    MaxAttempts: 0),
+                    MaxAttempts: 0,
+                    TenantId: "tenant-a",
+                    OwnerId: "user-a"),
                 CancellationToken.None));
 
         Assert.Equal(0, await CountDocumentsByStoragePathAsync(storagePath));
@@ -83,7 +89,9 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
                 $"duplicate-{marker}.txt",
                 "text/plain",
                 64,
-                $"/tmp/duplicate-{marker}.txt"),
+                $"/tmp/duplicate-{marker}.txt",
+                TenantId: "tenant-a",
+                OwnerId: "user-a"),
             CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<ActiveDocumentIngestionJobException>(() =>
@@ -115,7 +123,9 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
                     $"cancel-{marker}.txt",
                     "text/plain",
                     64,
-                    storagePath),
+                    storagePath,
+                    TenantId: "tenant-a",
+                    OwnerId: "user-a"),
                 cancellation.Token));
 
         Assert.Equal(0, await CountDocumentsByStoragePathAsync(storagePath));
@@ -126,7 +136,8 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Postgres"] = ConnectionString
+                ["ConnectionStrings:Postgres"] = ConnectionString,
+                ["ConnectionStrings:PostgresPrivileged"] = ConnectionString
             })
             .Build();
 
@@ -144,13 +155,19 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
                 size_in_bytes BIGINT NOT NULL,
                 storage_path TEXT NOT NULL,
                 status TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL
+                created_at TIMESTAMPTZ NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant',
+                owner_id TEXT NOT NULL DEFAULT 'legacy-system'
             );
+
+            ALTER TABLE documents ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant';
+            ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT 'legacy-system';
 
             CREATE TABLE IF NOT EXISTS document_ingestion_jobs
             (
                 id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 document_id UUID NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+                tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant',
                 status TEXT NOT NULL DEFAULT 'Pending',
                 attempt_count INTEGER NOT NULL DEFAULT 0,
                 max_attempts INTEGER NOT NULL DEFAULT 3,
@@ -167,6 +184,8 @@ public sealed class PostgresIngestionJobRepositoryIntegrationTests
                 CONSTRAINT ck_document_ingestion_jobs_attempts
                     CHECK (attempt_count >= 0 AND max_attempts > 0 AND attempt_count <= max_attempts)
             );
+
+            ALTER TABLE document_ingestion_jobs ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant';
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_document_ingestion_jobs_active_document
                 ON document_ingestion_jobs (document_id)
