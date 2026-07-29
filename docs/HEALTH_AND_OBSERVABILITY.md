@@ -26,7 +26,9 @@ A client-supplied value is accepted only when it:
 - is between 1 and 128 characters;
 - contains only letters, digits, `.`, `_`, `:`, or `-`.
 
-Missing or invalid values are replaced with a generated 32-character identifier. The identifier is placed in structured log scopes and OpenTelemetry activity tags. Outgoing ASP.NET Core requests propagate the same header. Standard W3C `traceparent` propagation is handled by OpenTelemetry HTTP instrumentation.
+Missing or invalid values are replaced with a generated 32-character identifier. The validated identifier is propagated through response headers, audit events, OpenTelemetry activity tags, and outgoing service requests. Standard W3C `traceparent` propagation is handled by OpenTelemetry HTTP instrumentation.
+
+The ASP.NET Core log scope does not write externally supplied correlation text directly. It stores a deterministic 128-bit prefix of a SHA-256 digest as `CorrelationLogId`; the original validated identifier remains available in the response, audit ledger, and trace context. This prevents user-controlled log entries while preserving deterministic diagnostic linkage.
 
 Correlation identifiers are diagnostic labels, not authentication credentials, and must not be trusted for authorization.
 
@@ -92,7 +94,7 @@ Metrics deliberately avoid user IDs, document IDs, file names, queries, and othe
 
 ## Structured logging
 
-The ASP.NET Core API writes JSON console logs with UTC timestamps, scopes, trace ID, span ID, and correlation ID. Worker scopes include document and ingestion-job identifiers. FastAPI uses structured JSON-style console logging.
+The ASP.NET Core API writes JSON console logs with UTC timestamps, scopes, trace ID, span ID, and the log-safe `CorrelationLogId` digest. Worker scopes include document and ingestion-job identifiers. FastAPI uses structured JSON-style console logging.
 
 The application must not log:
 
@@ -101,7 +103,8 @@ The application must not log:
 - search query text;
 - question text;
 - PostgreSQL passwords or connection strings;
-- externally supplied file content.
+- externally supplied file content;
+- raw externally supplied correlation text.
 
 ## Durable audit ledger
 
@@ -171,6 +174,7 @@ The .NET exporter uses the configured endpoint. The Python exporter sends traces
 CI verifies:
 
 - valid and invalid correlation-ID behavior in both services;
+- deterministic log-safe hashing of external correlation IDs;
 - liveness and dependency-aware readiness;
 - audit-table constraints, indexes, forced RLS, policies, and triggers;
 - absence of `UPDATE` and `DELETE` grants for application roles;
