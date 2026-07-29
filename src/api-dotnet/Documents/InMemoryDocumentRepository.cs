@@ -8,8 +8,8 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
     private readonly object _lock = new();
 
     public IReadOnlyCollection<DocumentRecord> GetAll(
-        string? tenantId = null,
         string? ownerId = null,
+        string? tenantId = null,
         bool bypassTenantIsolation = false)
     {
         lock (_lock)
@@ -23,8 +23,8 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
 
     public DocumentRecord? GetById(
         Guid documentId,
-        string? tenantId = null,
         string? ownerId = null,
+        string? tenantId = null,
         bool bypassTenantIsolation = false)
     {
         lock (_lock)
@@ -41,8 +41,8 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
         string? contentType,
         long sizeInBytes,
         string storagePath,
-        string tenantId = TenantIsolation.LegacyTenantId,
-        string ownerId = DocumentOwnership.LegacyOwnerId)
+        string ownerId = DocumentOwnership.LegacyOwnerId,
+        string tenantId = TenantIsolation.LegacyTenantId)
     {
         var document = new DocumentRecord(
             Guid.NewGuid(),
@@ -52,8 +52,8 @@ public sealed class InMemoryDocumentRepository : IDocumentRepository
             storagePath,
             "uploaded",
             DateTimeOffset.UtcNow,
-            TenantIsolation.Normalize(tenantId),
-            DocumentOwnership.Normalize(ownerId));
+            DocumentOwnership.Normalize(ownerId),
+            TenantIsolation.Normalize(tenantId));
 
         lock (_lock)
         {
