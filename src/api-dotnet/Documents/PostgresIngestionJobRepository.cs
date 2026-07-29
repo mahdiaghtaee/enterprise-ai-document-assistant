@@ -31,8 +31,8 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
             NormalizeRequired(request.StoragePath, nameof(request.StoragePath)),
             "uploaded",
             now,
-            TenantIsolation.Normalize(request.TenantId),
-            DocumentOwnership.Normalize(request.OwnerId));
+            DocumentOwnership.Normalize(request.OwnerId),
+            TenantIsolation.Normalize(request.TenantId));
 
         await using var connection = new NpgsqlConnection(_tenantConnectionString);
         await connection.OpenAsync(cancellationToken);
