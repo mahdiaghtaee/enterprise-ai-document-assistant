@@ -26,11 +26,23 @@ public sealed class PostgresTenantIsolationIntegrationTests
 
         await EnsureTenantSchemaAsync();
         var repository = CreateRepository();
-        var tenantA = repository.Add("tenant-a.txt", "text/plain", 1, "a", "tenant-a", "user-a");
-        var tenantB = repository.Add("tenant-b.txt", "text/plain", 1, "b", "tenant-b", "user-b");
+        var tenantA = repository.Add(
+            "tenant-a.txt",
+            "text/plain",
+            1,
+            "a",
+            ownerId: "user-a",
+            tenantId: "tenant-a");
+        var tenantB = repository.Add(
+            "tenant-b.txt",
+            "text/plain",
+            1,
+            "b",
+            ownerId: "user-b",
+            tenantId: "tenant-b");
 
-        var tenantAResults = repository.GetAll("tenant-a");
-        var tenantBResults = repository.GetAll("tenant-b");
+        var tenantAResults = repository.GetAll(tenantId: "tenant-a");
+        var tenantBResults = repository.GetAll(tenantId: "tenant-b");
         var platformResults = repository.GetAll(bypassTenantIsolation: true);
 
         Assert.Contains(tenantAResults, document => document.Id == tenantA.Id);
