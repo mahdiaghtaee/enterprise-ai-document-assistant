@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using EnterpriseDocumentAssistant.Api.Observability;
 using Microsoft.Extensions.Options;
 
 namespace EnterpriseDocumentAssistant.Api.Documents;
@@ -55,6 +57,7 @@ public sealed class DocumentIngestionWorker : BackgroundService
 
                     if (recovered > 0)
                     {
+                        ApplicationTelemetry.IngestionRecovered.Add(recovered);
                         _logger.LogWarning("Recovered {RecoveredJobCount} abandoned ingestion jobs.", recovered);
                     }
 
@@ -86,6 +89,21 @@ public sealed class DocumentIngestionWorker : BackgroundService
         DocumentIngestionJob job,
         CancellationToken stoppingToken)
     {
+        using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+            "document.ingestion.process",
+            ActivityKind.Consumer);
+        activity?.SetTag("ingestion.job.id", job.Id);
+        activity?.SetTag("document.id", job.DocumentId);
+        activity?.SetTag("ingestion.attempt", job.AttemptCount);
+        var stopwatch = Stopwatch.StartNew();
+
+        using var logScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["IngestionJobId"] = job.Id,
+            ["DocumentId"] = job.DocumentId,
+            ["AttemptCount"] = job.AttemptCount
+        });
+
         var document = _documentRepository.GetById(
             job.DocumentId,
             bypassTenantIsolation: true);
@@ -99,12 +117,21 @@ public sealed class DocumentIngestionWorker : BackgroundService
                 DateTimeOffset.UtcNow,
                 CancellationToken.None);
 
+            stopwatch.Stop();
+            activity?.SetStatus(ActivityStatusCode.Error, "document-record-not-found");
+            ApplicationTelemetry.IngestionFailed.Add(
+                1,
+                ApplicationTelemetry.Tag("error.code", "document-record-not-found"));
+            ApplicationTelemetry.IngestionDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
             _logger.LogError(
                 "Ingestion job {JobId} failed because document {DocumentId} does not exist.",
                 job.Id,
                 job.DocumentId);
             return;
         }
+
+        activity?.SetTag("tenant.id", document.TenantId);
+        activity?.SetTag("document.content_type", document.ContentType);
 
         try
         {
@@ -115,6 +142,13 @@ public sealed class DocumentIngestionWorker : BackgroundService
                 DateTimeOffset.UtcNow,
                 stoppingToken);
             _documentRepository.UpdateStatus(document.Id, "indexed");
+
+            stopwatch.Stop();
+            activity?.SetTag("ingestion.chunk_count", result.ChunkCount);
+            activity?.SetTag("ingestion.vector_count", result.VectorCount);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            ApplicationTelemetry.IngestionCompleted.Add(1);
+            ApplicationTelemetry.IngestionDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
 
             _logger.LogInformation(
                 "Completed ingestion job {JobId} for document {DocumentId}: {ChunkCount} chunks and {VectorCount} vectors using {EmbeddingModel}.",
@@ -131,19 +165,28 @@ public sealed class DocumentIngestionWorker : BackgroundService
                 DateTimeOffset.UtcNow,
                 CancellationToken.None);
             _documentRepository.UpdateStatus(document.Id, "uploaded");
+            stopwatch.Stop();
+            activity?.SetStatus(ActivityStatusCode.Error, "worker-stopped");
+            ApplicationTelemetry.IngestionRetried.Add(
+                1,
+                ApplicationTelemetry.Tag("reason", "worker-stopped"));
+            ApplicationTelemetry.IngestionDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
             throw;
         }
         catch (DocumentIngestionProcessingException exception)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.ErrorCode);
             await RecordFailureAsync(
                 job,
                 document,
                 exception.ErrorCode,
                 exception.Message,
-                exception.Retryable);
+                exception.Retryable,
+                stopwatch);
         }
         catch (Exception exception)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
             _logger.LogError(
                 exception,
                 "Unexpected failure while processing ingestion job {JobId} for document {DocumentId}.",
@@ -155,7 +198,8 @@ public sealed class DocumentIngestionWorker : BackgroundService
                 document,
                 "unhandled-processing-error",
                 exception.Message,
-                retryable: true);
+                retryable: true,
+                stopwatch);
         }
     }
 
@@ -164,7 +208,8 @@ public sealed class DocumentIngestionWorker : BackgroundService
         DocumentRecord document,
         string errorCode,
         string errorSummary,
-        bool retryable)
+        bool retryable,
+        Stopwatch stopwatch)
     {
         var updatedJob = await _jobRepository.MarkFailedOrRetryAsync(
             job.Id,
@@ -178,6 +223,22 @@ public sealed class DocumentIngestionWorker : BackgroundService
             ? "retry-pending"
             : "failed";
         _documentRepository.UpdateStatus(document.Id, documentStatus);
+        stopwatch.Stop();
+
+        if (updatedJob.Status == DocumentIngestionStatus.Pending)
+        {
+            ApplicationTelemetry.IngestionRetried.Add(
+                1,
+                ApplicationTelemetry.Tag("error.code", updatedJob.LastErrorCode));
+        }
+        else
+        {
+            ApplicationTelemetry.IngestionFailed.Add(
+                1,
+                ApplicationTelemetry.Tag("error.code", updatedJob.LastErrorCode));
+        }
+
+        ApplicationTelemetry.IngestionDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
 
         _logger.LogWarning(
             "Ingestion job {JobId} for document {DocumentId} moved to {Status} after attempt {AttemptCount}/{MaxAttempts}. Error: {ErrorCode}.",

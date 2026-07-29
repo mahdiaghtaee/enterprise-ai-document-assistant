@@ -12,6 +12,9 @@ services:
       SemanticIndex__Provider: Postgres
       Redis__ConnectionString: redis:6379
       AiService__BaseUrl: http://ai-service:8000
+      OpenTelemetry__ServiceName: enterprise-document-assistant-api
+      OpenTelemetry__ServiceVersion: ${SERVICE_VERSION:-dev}
+      OpenTelemetry__OtlpEndpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,6 +38,10 @@ services:
       dockerfile: src/ai-service-python/Dockerfile
     ports:
       - "${AI_SERVICE_HOST_PORT:-8000}:8000"
+    environment:
+      APP_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      OTEL_SERVICE_NAME: enterprise-document-assistant-ai-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
 
   postgres:
     image: pgvector/pgvector:0.8.5-pg16

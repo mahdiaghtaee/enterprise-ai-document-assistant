@@ -1,0 +1,196 @@
+name: Audit and observability integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  audit-observability:
+    name: Correlation, health, and audit boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config
+
+      - name: Build and start stack
+        run: docker compose up --detach --build
+
+      - name: Wait for services
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_url() {
+            local name="$1"
+            local url="$2"
+
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error "$url" > /dev/null; then
+                echo "$name is ready"
+                return 0
+              fi
+
+              echo "Waiting for $name ($attempt/30)"
+              sleep 2
+            done
+
+            echo "$name did not become ready"
+            return 1
+          }
+
+          wait_for_url "document API" "http://localhost:5000/health/live"
+          wait_for_url "document API dependencies" "http://localhost:5000/health/ready"
+          wait_for_url "AI service" "http://localhost:8000/health"
+
+      - name: Verify correlation propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl --fail --silent --show-error --dump-header /tmp/api-headers.txt \
+            --header "X-Correlation-ID: ci-correlation-api" \
+            http://localhost:5000/health > /tmp/api-health.json
+          grep --ignore-case --fixed-strings "x-correlation-id: ci-correlation-api" /tmp/api-headers.txt
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/api-health.json', encoding='utf-8') as response_file:
+              health = json.load(response_file)
+
+          assert health['correlationId'] == 'ci-correlation-api', health
+          assert health['status'] == 'ok', health
+          PY
+
+          curl --fail --silent --show-error --dump-header /tmp/ai-headers.txt \
+            --header "X-Correlation-ID: ci-correlation-ai" \
+            http://localhost:8000/health > /tmp/ai-health.json
+          grep --ignore-case --fixed-strings "x-correlation-id: ci-correlation-ai" /tmp/ai-headers.txt
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/ai-health.json', encoding='utf-8') as response_file:
+              health = json.load(response_file)
+
+          assert health['correlation_id'] == 'ci-correlation-ai', health
+          assert health['status'] == 'ok', health
+          PY
+
+      - name: Verify append-only audit schema and RLS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          query_database() {
+            docker compose exec -T postgres psql \
+              --username "${POSTGRES_USER:-documents}" \
+              --dbname "${POSTGRES_DB:-documents}" \
+              --no-psqlrc \
+              --tuples-only \
+              --no-align \
+              --set ON_ERROR_STOP=1 \
+              --command "$1"
+          }
+
+          test "$(query_database "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'audit_events';")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_class WHERE relname = 'audit_events' AND relrowsecurity AND relforcerowsecurity;")" = "1"
+          test "$(query_database "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'audit_events' AND policyname IN ('tenant_audit_events_select', 'tenant_audit_events_insert', 'privileged_audit_events_select', 'privileged_audit_events_insert');")" = "4"
+          test "$(query_database "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_audit_document_change', 'trg_audit_ingestion_job_change');")" = "2"
+          test "$(query_database "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'audit_events' AND grantee IN ('document_app', 'document_privileged') AND privilege_type IN ('UPDATE', 'DELETE');")" = "0"
+
+      - name: Verify tenant-aware audit API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tenant_a_user=$(python3 scripts/create_dev_token.py --user audit-user --tenant audit-tenant-a --role User)
+          tenant_a_admin=$(python3 scripts/create_dev_token.py --user audit-admin-a --tenant audit-tenant-a --role Admin)
+          tenant_b_admin=$(python3 scripts/create_dev_token.py --user audit-admin-b --tenant audit-tenant-b --role Admin)
+          platform_admin=$(python3 scripts/create_dev_token.py --user audit-platform --tenant platform --role PlatformAdmin)
+          correlation_id="ci-audit-flow"
+          sensitive_query="sensitive-query-must-not-be-audited"
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $tenant_a_user" \
+            --header "X-Correlation-ID: $correlation_id" \
+            --header "Content-Type: application/json" \
+            --data "{\"query\":\"$sensitive_query\",\"topK\":3}" \
+            http://localhost:5000/api/documents/search > /tmp/search.json
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $tenant_a_admin" \
+            "http://localhost:5000/api/audit/events?limit=100" > /tmp/audit-a.json
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $tenant_b_admin" \
+            "http://localhost:5000/api/audit/events?limit=100" > /tmp/audit-b.json
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $platform_admin" \
+            "http://localhost:5000/api/audit/events?limit=500" > /tmp/audit-platform.json
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/audit-a.json', encoding='utf-8') as response_file:
+              tenant_a = json.load(response_file)
+          with open('/tmp/audit-b.json', encoding='utf-8') as response_file:
+              tenant_b = json.load(response_file)
+          with open('/tmp/audit-platform.json', encoding='utf-8') as response_file:
+              platform = json.load(response_file)
+
+          assert any(
+              event['eventType'] == 'document.search_executed'
+              and event['correlationId'] == 'ci-audit-flow'
+              and event['tenantId'] == 'audit-tenant-a'
+              for event in tenant_a
+          ), tenant_a
+          assert not any(event['correlationId'] == 'ci-audit-flow' for event in tenant_b), tenant_b
+          assert any(event['correlationId'] == 'ci-audit-flow' for event in platform), platform
+          assert 'sensitive-query-must-not-be-audited' not in json.dumps(platform), platform
+          PY
+
+          audit_count=$(docker compose exec -T postgres psql \
+            --username "${POSTGRES_USER:-documents}" \
+            --dbname "${POSTGRES_DB:-documents}" \
+            --no-psqlrc \
+            --tuples-only \
+            --no-align \
+            --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM audit_events WHERE tenant_id = 'audit-tenant-a';")
+          test "$audit_count" -gt 0
+
+          if docker compose exec -T \
+            --env PGPASSWORD="${APP_DB_PASSWORD:-document-app-local}" \
+            postgres psql \
+              --username document_app \
+              --dbname "${POSTGRES_DB:-documents}" \
+              --no-psqlrc \
+              --set ON_ERROR_STOP=1 \
+              --command "UPDATE audit_events SET outcome = 'failure';"; then
+            echo "document_app unexpectedly updated append-only audit rows"
+            exit 1
+          fi
+
+      - name: Show service logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans

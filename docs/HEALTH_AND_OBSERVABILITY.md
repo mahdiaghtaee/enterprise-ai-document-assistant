@@ -1,104 +1,196 @@
-# Health and Observability Notes
+# Health, Audit, and Observability
 
-This document defines the expected health and observability direction for the Enterprise AI Document Assistant.
+This document describes the implemented operational-diagnostics foundation for the Enterprise AI Document Assistant.
 
-## Goal
+## Operational goals
 
-A production-oriented backend project should make it easy to understand whether services are running, whether requests are failing, and where document-processing work is delayed.
+The system should answer four questions without inspecting private document content:
 
-## Health Checks
+1. Is each process running?
+2. Are required dependencies reachable?
+3. Which request, trace, tenant, document, or ingestion job failed?
+4. Which authenticated actor performed a security-relevant document operation?
 
-### API Health
+The implementation separates telemetry from the durable audit ledger. Telemetry is optimized for diagnosis and aggregation; audit events are append-only business/security records.
 
-The ASP.NET Core API should expose a health endpoint for deployment and local validation.
+## Correlation and trace context
 
-Suggested endpoint:
-
-```text
-GET /health
-```
-
-Expected purpose:
-
-- confirm the API process is running
-- confirm required dependencies are reachable
-- support Docker, CI, and deployment checks
-
-### AI Service Health
-
-The Python FastAPI service should expose its own health endpoint.
-
-Suggested endpoint:
+Every ASP.NET Core and FastAPI response includes:
 
 ```text
-GET /health
+X-Correlation-ID: <validated identifier>
 ```
 
-Expected purpose:
+A client-supplied value is accepted only when it:
 
-- confirm the AI service is running
-- confirm model or processing dependencies are available when needed
-- help diagnose service-to-service communication issues
+- is between 1 and 128 characters;
+- contains only letters, digits, `.`, `_`, `:`, or `-`.
 
-### Dependency Health
+Missing or invalid values are replaced with a generated 32-character identifier. The validated identifier is propagated through response headers, audit events, OpenTelemetry activity tags, and outgoing service requests. Standard W3C `traceparent` propagation is handled by OpenTelemetry HTTP instrumentation.
 
-Future health checks should include:
+The ASP.NET Core log scope does not write externally supplied correlation text directly. It stores a deterministic 128-bit prefix of a SHA-256 digest as `CorrelationLogId`; the original validated identifier remains available in the response, audit ledger, and trace context. This prevents user-controlled log entries while preserving deterministic diagnostic linkage.
 
-- PostgreSQL connection
-- Redis connection
-- document storage path access
-- vector store connection
-- AI service availability
+Correlation identifiers are diagnostic labels, not authentication credentials, and must not be trusted for authorization.
 
-## Structured Logging
+## Health endpoints
 
-Logs should include structured fields such as:
+### ASP.NET Core API
 
-- request ID
-- correlation ID
-- document ID
-- tenant or workspace ID in future versions
-- processing status
-- endpoint name
-- elapsed time
-- error category
+| Endpoint | Purpose | Dependency checks |
+|---|---|---|
+| `GET /health` | Backward-compatible process health | None |
+| `GET /health/live` | Liveness/probe that confirms the process can serve HTTP | None |
+| `GET /health/ready` | Readiness for traffic | PostgreSQL and FastAPI health |
 
-## Document Processing Status
+The readiness endpoint returns `503 Service Unavailable` when a required dependency is unhealthy. Its response includes dependency status and duration, correlation ID, and trace ID, but not credentials or connection strings.
 
-Document processing should expose clear states:
+### FastAPI service
+
+`GET /health` returns service status, UTC check time, correlation ID, and the active trace ID when one exists.
+
+## OpenTelemetry signals
+
+Both services can run without a telemetry collector. When `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, they export OTLP/HTTP traces and metrics. The ASP.NET Core service also exports structured OpenTelemetry logs.
+
+Service names:
 
 ```text
-Uploaded
-Queued
-Processing
-Indexed
-Failed
+enterprise-document-assistant-api
+enterprise-document-assistant-ai-service
 ```
 
-These states help clients understand where each document is in the workflow.
+ASP.NET Core instrumentation includes:
 
-## Future Metrics
+- inbound HTTP spans;
+- outgoing `HttpClient` spans;
+- runtime metrics;
+- custom Search, Ask, upload/enqueue, and ingestion-worker spans;
+- trace, span, correlation, tenant, document, and ingestion-job attributes where applicable.
 
-Useful future metrics:
+FastAPI instrumentation includes inbound request spans and a custom counter for its indexing boundary.
 
-- document upload count
-- failed document processing count
-- average indexing time
-- search request count
-- RAG answer request count
-- average response time
-- AI service failure count
+## Application metrics
 
-## Audit and Compliance Direction
+The custom meter is `EnterpriseDocumentAssistant.Api`.
 
-For enterprise clients, future versions should consider:
+| Instrument | Type | Meaning |
+|---|---|---|
+| `document_assistant.authorization.denied` | Counter | HTTP 401 and 403 responses |
+| `document_assistant.uploads.queued` | Counter | Uploads durably queued |
+| `document_assistant.search.requests` | Counter | Search requests |
+| `document_assistant.search.duration` | Histogram | Search duration in milliseconds |
+| `document_assistant.search.results` | Histogram | Visible result count |
+| `document_assistant.ask.requests` | Counter | Ask requests |
+| `document_assistant.ask.duration` | Histogram | Ask retrieval duration |
+| `document_assistant.ingestion.completed` | Counter | Completed jobs |
+| `document_assistant.ingestion.retried` | Counter | Jobs returned to Pending |
+| `document_assistant.ingestion.failed` | Counter | Terminal job failures |
+| `document_assistant.ingestion.recovered` | Counter | Abandoned jobs recovered |
+| `document_assistant.ingestion.duration` | Histogram | Worker processing duration |
+| `document_assistant.audit.persisted` | Counter | Application audit events persisted |
+| `document_assistant.audit.persistence_failures` | Counter | Supplementary audit persistence failures |
 
-- who uploaded a document
-- who asked a question
-- which documents were retrieved
-- which answer was generated
-- which source chunks supported the answer
+Metrics deliberately avoid user IDs, document IDs, file names, queries, and other unbounded high-cardinality values.
 
-## Portfolio Message
+## Structured logging
 
-These notes show that the project is designed with production operation in mind, not only local AI experimentation.
+The ASP.NET Core API writes JSON console logs with UTC timestamps, scopes, trace ID, span ID, and the log-safe `CorrelationLogId` digest. Worker scopes include document and ingestion-job identifiers. FastAPI uses structured JSON-style console logging.
+
+The application must not log:
+
+- bearer tokens;
+- document text or source chunks;
+- search query text;
+- question text;
+- PostgreSQL passwords or connection strings;
+- externally supplied file content;
+- raw externally supplied correlation text.
+
+## Durable audit ledger
+
+PostgreSQL table `audit_events` stores append-only tenant-aware audit records:
+
+- occurrence time;
+- tenant;
+- authenticated actor and role;
+- event type and action;
+- resource type and identifier;
+- outcome;
+- correlation and trace identifiers;
+- bounded JSON metadata that excludes document/query/question content.
+
+Application roles receive only `SELECT` and `INSERT`; they do not receive `UPDATE` or `DELETE`.
+
+Forced PostgreSQL Row-Level Security applies to the audit table:
+
+- `document_app` can insert and read only the active `app.tenant_id`;
+- `document_privileged` can insert and read across tenants;
+- the API exposes `GET /api/audit/events` only to `Admin` and `PlatformAdmin`;
+- `Admin` is restricted to its token tenant;
+- `PlatformAdmin` can retrieve cross-tenant events through the explicit privileged path;
+- ordinary `User` tokens receive `403 Forbidden`.
+
+## Atomic mutation events
+
+Database triggers write base audit events in the same transaction as:
+
+- document creation;
+- document status changes;
+- ingestion-job creation;
+- ingestion-job status changes.
+
+This ensures the durable state transition and its base audit record commit or roll back together. These trigger records use a safe system/owner fallback when no application correlation context is available.
+
+Application endpoints add correlated semantic events for:
+
+- document listing;
+- metadata creation;
+- upload and durable enqueue;
+- processing-status access;
+- semantic search;
+- grounded Ask;
+- audit-ledger access.
+
+For Search and Ask, audit metadata stores only `topK`, result/source count, and duration. The query and question are never stored.
+
+## Local configuration
+
+The default stack requires no collector:
+
+```text
+OTEL_EXPORTER_OTLP_ENDPOINT=
+```
+
+To export to an OTLP/HTTP collector reachable from Docker, set a base endpoint such as:
+
+```text
+OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+```
+
+The .NET exporter uses the configured endpoint. The Python exporter sends traces to `/v1/traces` and metrics to `/v1/metrics` beneath that base endpoint.
+
+## Validation
+
+CI verifies:
+
+- valid and invalid correlation-ID behavior in both services;
+- deterministic log-safe hashing of external correlation IDs;
+- liveness and dependency-aware readiness;
+- audit-table constraints, indexes, forced RLS, policies, and triggers;
+- absence of `UPDATE` and `DELETE` grants for application roles;
+- tenant-admin isolation and PlatformAdmin visibility;
+- failure of an application-role attempt to update audit rows;
+- absence of a known sensitive search string from the serialized audit response;
+- .NET and Python unit/integration tests, CodeQL, and dependency review.
+
+## Remaining production work
+
+This foundation does not provide:
+
+- a bundled production collector or telemetry backend;
+- dashboards, alert rules, or service-level objectives;
+- long-term audit retention, archival, legal hold, or deletion automation;
+- tamper-evident hashing or external immutable audit storage;
+- sampling policy tuned from production traffic;
+- end-to-end load, cardinality, or exporter-failure testing;
+- production secret management or identity-provider lifecycle integration.

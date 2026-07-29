@@ -1,14 +1,16 @@
 # Enterprise AI Document Assistant
 
 [![CI](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml)
+[![Audit and observability](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/observability.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/observability.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A local-first reference implementation for tenant-isolated document ingestion, durable background processing, persistent semantic retrieval, and source-aware answers.
+A local-first reference implementation for tenant-isolated document ingestion, durable background processing, persistent semantic retrieval, source-aware answers, and auditable operations.
 
-The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The deterministic document pipeline runs in an ASP.NET Core hosted worker and can be tested without external AI credentials.
+The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The deterministic document pipeline runs in an ASP.NET Core hosted worker and can be tested without external AI credentials or a telemetry collector.
 
 ```text
-JWT tenant/user -> RLS-scoped upload -> Atomic enqueue -> Background extraction/indexing -> Tenant-scoped retrieval -> Answer with sources
+JWT tenant/user -> Correlated RLS-scoped request -> Durable audit + enqueue ->
+Background extraction/indexing -> Tenant-scoped retrieval -> Answer with sources
 ```
 
 ## Current Scope
@@ -19,33 +21,41 @@ Implemented:
 - fail-closed JWT validation for issuer, audience, signature, lifetime, `sub`, `tenant_id`, and role
 - tenant-scoped `User` and `Admin` roles plus explicit cross-tenant `PlatformAdmin`
 - immutable document owner and tenant identity derived from JWT claims
-- owner-filtered access for ordinary users and tenant-wide access for tenant administrators
-- PostgreSQL Row-Level Security on documents, semantic chunks, and ingestion jobs
+- PostgreSQL Row-Level Security on documents, semantic chunks, ingestion jobs, and audit events
 - separate non-superuser runtime and privileged PostgreSQL roles
-- direct negative database tests for cross-tenant reads, writes, and missing tenant context
 - local document storage and PostgreSQL-backed metadata
 - atomic document metadata and initial ingestion-job persistence
 - durable `Pending`, `Processing`, `Completed`, and `Failed` job states
 - transactional job claiming with PostgreSQL `FOR UPDATE SKIP LOCKED`
 - hosted background extraction, chunking, embedding, and semantic-index persistence
-- bounded delayed retries, graceful shutdown, and abandoned-job recovery
+- bounded retries, graceful shutdown, and abandoned-job recovery
 - authenticated processing-status, semantic search, and source-aware Ask endpoints
+- validated `X-Correlation-ID` generation, echo, logging scope, and service propagation
+- OpenTelemetry tracing and metrics for ASP.NET Core, HttpClient, runtime, Search, Ask, upload, and worker processing
+- FastAPI OpenTelemetry request instrumentation and correlation propagation
+- optional OTLP/HTTP export while retaining collector-free local execution
+- structured JSON console logging with trace, span, correlation, document, and job context
+- liveness and dependency-aware readiness endpoints
+- append-only PostgreSQL audit ledger with forced tenant RLS
+- atomic trigger audit for document and ingestion-job state changes
+- correlated application audit for list, upload, status, Search, Ask, and audit access
+- tenant-admin audit visibility and explicit PlatformAdmin cross-tenant visibility
 - plain-text extraction and deterministic eight-dimensional local embeddings
 - configurable in-memory or PostgreSQL/pgvector semantic index
-- persistence and authorization checks across API-container restarts
-- FastAPI integration boundary, Redis infrastructure, Web UI, demo script, CI, CodeQL, and Dependency Review
+- Docker Compose verification, .NET/Python tests, coverage floors, CodeQL, and Dependency Review
 
 Not implemented yet:
 
 - tenant provisioning, memberships, invitations, domain verification, or quotas
 - production identity-provider synchronization, key rotation, or token revocation
-- audit logging, correlation identifiers, OpenTelemetry, and operational metrics
+- production telemetry backend, dashboards, alerts, or service-level objectives
+- audit retention, archival, legal hold, tamper-evident hashing, or external immutable storage
 - encrypted document storage and centralized secret management
 - production language-model or embedding-provider integration
 - retrieval-quality evaluation on a representative corpus
 - PDF, DOCX, OCR, malware scanning, or file-signature validation
 
-Tenant isolation reduces cross-organization disclosure risk, but this reference project must not be used for confidential or regulated documents until audit, encryption, secret-management, identity-lifecycle, and operational controls are completed. See [SECURITY.md](SECURITY.md).
+Tenant isolation and durable auditability reduce disclosure and accountability risks, but this reference project must not be used for confidential or regulated documents until identity lifecycle, encryption, secret management, retention, and operational review are completed. See [SECURITY.md](SECURITY.md).
 
 ## Quick Start
 
@@ -64,13 +74,15 @@ cp .env.example .env   # Windows PowerShell: Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Docker Compose uses separate local PostgreSQL credentials for the tenant-restricted API path and the privileged worker/platform path. The values in `.env.example` are development-only.
+Docker Compose uses separate local PostgreSQL credentials for the tenant-restricted API path and the privileged worker/platform path. It does not require a telemetry collector. To export OTLP/HTTP signals, configure `OTEL_EXPORTER_OTLP_ENDPOINT` in `.env`.
 
 | Service | Address |
 |---|---|
 | Web UI | `http://localhost:3000` |
 | Swagger / OpenAPI | `http://localhost:5000/swagger` |
-| ASP.NET Core health | `http://localhost:5000/health` |
+| API health | `http://localhost:5000/health` |
+| API liveness | `http://localhost:5000/health/live` |
+| API readiness | `http://localhost:5000/health/ready` |
 | FastAPI health | `http://localhost:8000/health` |
 
 Generate a tenant-scoped development token:
@@ -104,44 +116,45 @@ Detailed setup and migration guidance:
 - [Local development](docs/LOCAL_DEVELOPMENT.md)
 - [Authentication and authorization](docs/AUTHENTICATION_AND_AUTHORIZATION.md)
 - [Tenant isolation](docs/TENANT_ISOLATION.md)
+- [Health, audit, and observability](docs/HEALTH_AND_OBSERVABILITY.md)
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    U[Authenticated client] --> J[JWT sub + tenant_id + role]
-    J --> A[ASP.NET Core API]
+    U[Authenticated client] --> C[Correlation + JWT policy]
+    C --> A[ASP.NET Core API]
     A --> T[Tenant session context]
     T --> P[(PostgreSQL forced RLS)]
+    P --> L[(Append-only audit ledger)]
     A --> S[Local document storage]
     P --> W[Privileged ingestion worker]
     W --> X[Extract and chunk]
     X --> E[Deterministic embeddings]
     E --> V[(Tenant-tagged pgvector chunks)]
     V --> Q[Tenant and owner scoped Search / Ask]
-    A --> R[(Redis infrastructure)]
-    A --> F[FastAPI service boundary]
+    A --> F[FastAPI boundary]
+    A --> O[OpenTelemetry traces metrics logs]
+    F --> O
 ```
 
-The API derives `owner_id` from `sub` and `tenant_id` from the JWT. Runtime PostgreSQL transactions set a transaction-local `app.tenant_id`; forced RLS independently limits documents, chunks, and jobs. `User` requests add an owner filter, `Admin` bypasses only that owner filter, and `PlatformAdmin` uses the explicit privileged connection.
+The API derives `owner_id` from `sub` and `tenant_id` from the JWT. Runtime PostgreSQL transactions set transaction-local tenant context; forced RLS independently limits documents, chunks, jobs, and audit rows. `User` requests add an owner filter, `Admin` bypasses only the owner filter inside one tenant, and `PlatformAdmin` uses the explicit privileged path.
 
-Background processing preserves the stored owner and tenant when generating semantic-index records. Composite foreign keys prevent a chunk or ingestion job from being associated with a different tenant than its document.
+Every response carries a validated `X-Correlation-ID`. OpenTelemetry HTTP instrumentation propagates W3C trace context between services. Database triggers commit base mutation events atomically with document and ingestion state changes; application events add semantic action, correlation, trace, result count, and duration without storing document text, query text, question text, or bearer tokens.
 
 Architecture details:
 
+- [Health, audit, and observability](docs/HEALTH_AND_OBSERVABILITY.md)
 - [Tenant isolation](docs/TENANT_ISOLATION.md)
 - [Authentication and authorization](docs/AUTHENTICATION_AND_AUTHORIZATION.md)
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [pgvector semantic index](docs/PGVECTOR_SCHEMA.md)
 - [Background ingestion](docs/BACKGROUND_INGESTION.md)
-- [Engineering case study](docs/CASE_STUDY.md)
 - [Roadmap](docs/ROADMAP.md)
 
-## API Security Behavior
+## API Security and Audit Behavior
 
-Every `/api/documents` endpoint requires `Authorization: Bearer <token>`. `GET /health` remains public.
-
-`GET /api/auth/me` returns the authenticated user, tenant, roles, tenant-wide owner access, and cross-tenant access state.
+Every `/api/documents` endpoint requires `Authorization: Bearer <token>`. Health endpoints remain public.
 
 For document operations:
 
@@ -152,49 +165,49 @@ For document operations:
 - missing required claims or role: `403`;
 - document outside authorized owner or tenant scope: `404`.
 
-Search and Ask apply the same database and owner boundaries before returning source text.
+`GET /api/audit/events` requires `Admin` or `PlatformAdmin`. Tenant administrators see only their tenant through RLS; PlatformAdmin can retrieve cross-tenant records. Application roles have no `UPDATE` or `DELETE` permission on the audit table.
 
-## Persistence and Isolation Verification
+## Verification
 
 CI verifies:
 
-- JWT claim and role enforcement;
-- user isolation across owners and tenants;
-- tenant administrator access only inside one tenant;
-- platform administrator cross-tenant access;
+- JWT claim, role, owner, and tenant enforcement;
 - forced RLS and non-`BYPASSRLS` runtime roles;
-- direct rejection of cross-tenant database writes;
-- fail-closed reads without tenant session context;
-- tenant identity on documents, chunks, and ingestion jobs;
-- successful upload, processing, retrieval, and authorization after API restart.
+- cross-tenant database read/write rejection;
+- valid and invalid correlation identifiers in ASP.NET Core and FastAPI;
+- liveness and dependency-aware readiness;
+- audit constraints, policies, triggers, and append-only privileges;
+- tenant-admin audit isolation and PlatformAdmin visibility;
+- exclusion of a known sensitive query string from audit responses;
+- successful upload, processing, retrieval, authorization, and persistence after API restart.
 
 ## Current Limitations
 
 - Only the supported local plain-text extraction path is implemented.
 - Tenant lifecycle and membership management are not implemented.
-- The privileged worker/platform credentials are still loaded by the same API process in Docker Compose; a production design should separate that trust boundary.
-- Audit logging, token revocation, managed key rotation, encrypted storage, and external identity-provider integration remain absent.
+- Privileged worker/platform credentials are loaded by the same API process in Docker Compose; production should separate that trust boundary.
+- A collector, telemetry storage, dashboards, alerts, audit retention, and tamper-evident archival are not bundled.
+- Token revocation, managed key rotation, encrypted storage, and external identity-provider integration remain absent.
 - The deterministic embedding model is intended for reproducible development, not production retrieval quality.
 - Docker Compose uses development defaults and exposes local ports.
 
-The next major priority is auditability and observability: durable audit events, correlation identifiers, OpenTelemetry traces, and operational metrics.
+The next engineering priority is reproducible retrieval-quality evaluation, followed by provider-backed grounded answers while preserving deterministic local mode.
 
 ## Repository Structure
 
 | Area | Responsibility |
 |---|---|
-| `src/api-dotnet/` | Authentication, tenant policies, public API, ingestion worker, persistence, document pipeline, semantic-index providers |
-| `src/ai-service-python/` | FastAPI boundary for future Python-specific processing |
+| `src/api-dotnet/` | Authentication, tenant policies, audit, observability, public API, worker, persistence, and semantic retrieval |
+| `src/ai-service-python/` | Correlated FastAPI and OpenTelemetry boundary for future Python-specific processing |
 | `src/web-ui/` | Authenticated demonstration interface |
-| `infra/postgres/` | PostgreSQL roles, RLS, ownership, pgvector, and ingestion initialization |
-| `tests/api-dotnet/` | API, security, RLS, provider, pipeline, and PostgreSQL lifecycle tests |
-| `scripts/` | Tenant-aware local token helper and end-to-end demo |
-| `samples/` | Uploadable example documents |
-| `docs/` | Architecture, security, migrations, operations, and roadmap |
+| `infra/postgres/` | PostgreSQL roles, RLS, audit, ownership, pgvector, and ingestion initialization |
+| `tests/api-dotnet/` | API, security, audit, RLS, provider, pipeline, and PostgreSQL lifecycle tests |
+| `scripts/` | Tenant-aware token helper and end-to-end demo |
+| `docs/` | Architecture, security, migrations, observability, operations, and roadmap |
 
 ## Contributing
 
-Focused contributions are welcome for auditability, observability, tenant lifecycle, retrieval evaluation, and safe document-format expansion.
+Focused contributions are welcome for retrieval evaluation, provider integration, tenant lifecycle, audit retention, and safe document-format expansion.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report security-sensitive findings through [SECURITY.md](SECURITY.md).
 

@@ -1,10 +1,15 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using EnterpriseDocumentAssistant.Api.Ai;
+using EnterpriseDocumentAssistant.Api.Audit;
 using EnterpriseDocumentAssistant.Api.Documents;
+using EnterpriseDocumentAssistant.Api.Observability;
 using EnterpriseDocumentAssistant.Api.Security;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddApplicationObservability();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -36,7 +41,8 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins("http://localhost:3000")
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .WithExposedHeaders(CorrelationIdMiddleware.HeaderName);
     });
 });
 builder.Services.AddApplicationSecurity(builder.Configuration);
@@ -51,6 +57,15 @@ builder.Services.AddSingleton<IDocumentIngestionProcessor, DocumentIngestionProc
 builder.Services.Configure<DocumentIngestionWorkerOptions>(
     builder.Configuration.GetSection("IngestionWorker"));
 
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
+{
+    builder.Services.AddSingleton<IAuditEventRepository, PostgresAuditEventRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<IAuditEventRepository, InMemoryAuditEventRepository>();
+}
+
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("PostgresPrivileged")) ||
     !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
 {
@@ -61,7 +76,8 @@ builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 {
     var baseUrl = builder.Configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
     client.BaseAddress = new Uri(baseUrl);
-});
+})
+.AddHttpMessageHandler<CorrelationPropagationHandler>();
 
 var app = builder.Build();
 
@@ -72,15 +88,57 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("LocalWebUi");
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new
+app.MapGet("/health", (ICorrelationContextAccessor correlation) => Results.Ok(new
 {
     service = "document-api",
     status = "ok",
-    checkedAt = DateTimeOffset.UtcNow
+    checkedAt = DateTimeOffset.UtcNow,
+    correlationId = correlation.CorrelationId,
+    traceId = Activity.Current?.TraceId.ToString()
 }));
+
+app.MapGet("/health/live", (ICorrelationContextAccessor correlation) => Results.Ok(new
+{
+    service = "document-api",
+    status = "live",
+    checkedAt = DateTimeOffset.UtcNow,
+    correlationId = correlation.CorrelationId,
+    traceId = Activity.Current?.TraceId.ToString()
+}));
+
+app.MapGet("/health/ready", async (
+    HealthCheckService healthChecks,
+    ICorrelationContextAccessor correlation,
+    CancellationToken cancellationToken) =>
+{
+    var report = await healthChecks.CheckHealthAsync(
+        registration => registration.Tags.Contains("ready"),
+        cancellationToken);
+    var payload = new
+    {
+        service = "document-api",
+        status = report.Status.ToString(),
+        checkedAt = DateTimeOffset.UtcNow,
+        correlationId = correlation.CorrelationId,
+        traceId = Activity.Current?.TraceId.ToString(),
+        dependencies = report.Entries.ToDictionary(
+            entry => entry.Key,
+            entry => new
+            {
+                status = entry.Value.Status.ToString(),
+                description = entry.Value.Description,
+                durationMs = entry.Value.Duration.TotalMilliseconds
+            })
+    };
+
+    return report.Status == HealthStatus.Healthy
+        ? Results.Ok(payload)
+        : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
 
 app.MapGet("/api/auth/me", (ClaimsPrincipal principal) =>
 {
@@ -99,19 +157,43 @@ app.MapGet("/api/auth/me", (ClaimsPrincipal principal) =>
 var documentApi = app.MapGroup("/api/documents")
     .RequireAuthorization(AuthorizationPolicies.DocumentAccess);
 
-documentApi.MapGet("/", (ClaimsPrincipal principal, IDocumentRepository repository) =>
+documentApi.MapGet("/", async (
+    ClaimsPrincipal principal,
+    IDocumentRepository repository,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
+    CancellationToken cancellationToken) =>
 {
     var access = DocumentAccessContext.FromPrincipal(principal);
-    return Results.Ok(repository.GetAll(
+    var documents = repository.GetAll(
         ownerId: access.OwnerFilter,
         tenantId: access.TenantFilter,
-        bypassTenantIsolation: access.UsePrivilegedDatabase));
+        bypassTenantIsolation: access.UsePrivilegedDatabase);
+
+    await auditRepository.AppendAsync(
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.DocumentsListed,
+            "list",
+            "document",
+            resourceId: null,
+            outcome: "success",
+            details: new Dictionary<string, object?> { ["resultCount"] = documents.Count }),
+        access.UsePrivilegedDatabase,
+        cancellationToken);
+
+    return Results.Ok(documents);
 });
 
-documentApi.MapPost("/", (
+documentApi.MapPost("/", async (
     CreateDocumentRequest request,
     ClaimsPrincipal principal,
-    IDocumentRepository repository) =>
+    IDocumentRepository repository,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
+    ILogger<Program> logger,
+    CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.FileName))
     {
@@ -126,6 +208,22 @@ documentApi.MapPost("/", (
         "metadata-only",
         ownerId: access.UserId,
         tenantId: access.TenantId);
+
+    await AuditEventRecorder.TryAppendAsync(
+        auditRepository,
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.DocumentMetadataCreated,
+            "create_metadata",
+            "document",
+            document.Id.ToString(),
+            "success",
+            new Dictionary<string, object?> { ["contentType"] = document.ContentType }),
+        access.UsePrivilegedDatabase,
+        logger,
+        cancellationToken);
+
     return Results.Created($"/api/documents/{document.Id}", document);
 });
 
@@ -134,6 +232,9 @@ documentApi.MapPost("/upload", async (
     ClaimsPrincipal principal,
     IDocumentStorage storage,
     IIngestionJobRepository jobRepository,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     var validationError = DocumentUploadValidator.Validate(file);
@@ -149,6 +250,13 @@ documentApi.MapPost("/upload", async (
     }
 
     var access = DocumentAccessContext.FromPrincipal(principal);
+    using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+        "documents.upload.enqueue",
+        ActivityKind.Internal);
+    activity?.SetTag("tenant.id", access.TenantId);
+    activity?.SetTag("document.content_type", file.ContentType);
+    activity?.SetTag("document.size", file.Length);
+
     var storedDocument = await storage.SaveAsync(file, cancellationToken);
     DocumentIngestionCreationResult creationResult;
 
@@ -164,11 +272,36 @@ documentApi.MapPost("/upload", async (
                 TenantId: access.TenantId),
             cancellationToken);
     }
-    catch
+    catch (Exception exception)
     {
+        activity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
         await storage.DeleteAsync(storedDocument, CancellationToken.None);
         throw;
     }
+
+    activity?.SetTag("document.id", creationResult.Document.Id);
+    activity?.SetTag("ingestion.job.id", creationResult.Job.Id);
+    ApplicationTelemetry.UploadsQueued.Add(1);
+
+    await AuditEventRecorder.TryAppendAsync(
+        auditRepository,
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.DocumentUploadQueued,
+            "upload_and_queue",
+            "document",
+            creationResult.Document.Id.ToString(),
+            "success",
+            new Dictionary<string, object?>
+            {
+                ["ingestionJobId"] = creationResult.Job.Id,
+                ["contentType"] = creationResult.Document.ContentType,
+                ["sizeInBytes"] = creationResult.Document.SizeInBytes
+            }),
+        access.UsePrivilegedDatabase,
+        logger,
+        cancellationToken);
 
     var processingStatusUrl = $"/api/documents/{creationResult.Document.Id}/processing-status";
     var response = new UploadDocumentResponse(
@@ -191,6 +324,8 @@ documentApi.MapGet("/{documentId:guid}/processing-status", async (
     ClaimsPrincipal principal,
     IDocumentRepository documentRepository,
     IIngestionJobRepository jobRepository,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
     CancellationToken cancellationToken) =>
 {
     var access = DocumentAccessContext.FromPrincipal(principal);
@@ -202,10 +337,33 @@ documentApi.MapGet("/{documentId:guid}/processing-status", async (
 
     if (document is null)
     {
+        await auditRepository.AppendAsync(
+            AuditEventWrite.Create(
+                access,
+                RequireCorrelationId(correlation),
+                AuditEventTypes.DocumentStatusRead,
+                "read_status",
+                "document",
+                documentId.ToString(),
+                "not_found"),
+            access.UsePrivilegedDatabase,
+            cancellationToken);
         return Results.NotFound(new { message = "No document was found." });
     }
 
     var job = await jobRepository.GetLatestForDocumentAsync(documentId, cancellationToken);
+    await auditRepository.AppendAsync(
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.DocumentStatusRead,
+            "read_status",
+            "document",
+            documentId.ToString(),
+            job is null ? "not_found" : "success",
+            new Dictionary<string, object?> { ["jobStatus"] = job?.Status.ToString() }),
+        access.UsePrivilegedDatabase,
+        cancellationToken);
 
     return job is null
         ? Results.NotFound(new { message = "No ingestion job was found for the document." })
@@ -217,6 +375,8 @@ documentApi.MapPost("/search", async (
     ClaimsPrincipal principal,
     IEmbeddingGenerator embeddingGenerator,
     ISemanticIndexStore semanticIndexStore,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
     CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Query))
@@ -230,12 +390,16 @@ documentApi.MapPost("/search", async (
     }
 
     var access = DocumentAccessContext.FromPrincipal(principal);
+    using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+        "documents.search",
+        ActivityKind.Internal);
+    activity?.SetTag("tenant.id", access.TenantId);
+    activity?.SetTag("search.top_k", request.TopK);
+    var stopwatch = Stopwatch.StartNew();
+
     var embeddingResponse = await embeddingGenerator.GenerateAsync(
         new EmbeddingRequest(
-            new[]
-            {
-                new EmbeddingInput(Guid.NewGuid(), "query", 0, request.Query)
-            }),
+            [new EmbeddingInput(Guid.NewGuid(), "query", 0, request.Query)]),
         cancellationToken);
 
     var queryEmbedding = embeddingResponse.Vectors[0].Values;
@@ -246,6 +410,30 @@ documentApi.MapPost("/search", async (
             OwnerId: access.OwnerFilter,
             TenantId: access.TenantFilter,
             BypassTenantIsolation: access.UsePrivilegedDatabase),
+        cancellationToken);
+
+    stopwatch.Stop();
+    activity?.SetTag("search.result_count", results.Count);
+    ApplicationTelemetry.SearchRequests.Add(1);
+    ApplicationTelemetry.SearchDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+    ApplicationTelemetry.SearchResultCount.Record(results.Count);
+
+    await auditRepository.AppendAsync(
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.DocumentSearchExecuted,
+            "search",
+            "document_index",
+            resourceId: null,
+            outcome: "success",
+            details: new Dictionary<string, object?>
+            {
+                ["topK"] = request.TopK,
+                ["resultCount"] = results.Count,
+                ["durationMs"] = stopwatch.Elapsed.TotalMilliseconds
+            }),
+        access.UsePrivilegedDatabase,
         cancellationToken);
 
     var response = new DocumentSearchResponse(
@@ -266,6 +454,8 @@ documentApi.MapPost("/ask", async (
     ClaimsPrincipal principal,
     IEmbeddingGenerator embeddingGenerator,
     ISemanticIndexStore semanticIndexStore,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
     CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Question))
@@ -281,12 +471,16 @@ documentApi.MapPost("/ask", async (
     }
 
     var access = DocumentAccessContext.FromPrincipal(principal);
+    using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+        "documents.ask",
+        ActivityKind.Internal);
+    activity?.SetTag("tenant.id", access.TenantId);
+    activity?.SetTag("ask.top_k", topK);
+    var stopwatch = Stopwatch.StartNew();
+
     var embeddingResponse = await embeddingGenerator.GenerateAsync(
         new EmbeddingRequest(
-            new[]
-            {
-                new EmbeddingInput(Guid.NewGuid(), "question", 0, request.Question)
-            }),
+            [new EmbeddingInput(Guid.NewGuid(), "question", 0, request.Question)]),
         cancellationToken);
 
     var questionEmbedding = embeddingResponse.Vectors[0].Values;
@@ -306,20 +500,81 @@ documentApi.MapPost("/ask", async (
         result.Score,
         result.Record.Text)).ToArray();
 
+    stopwatch.Stop();
+    activity?.SetTag("ask.source_count", sources.Length);
+    ApplicationTelemetry.AskRequests.Add(1);
+    ApplicationTelemetry.AskDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+
+    await auditRepository.AppendAsync(
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.DocumentAskExecuted,
+            "ask",
+            "document_index",
+            resourceId: null,
+            outcome: "success",
+            details: new Dictionary<string, object?>
+            {
+                ["topK"] = topK,
+                ["sourceCount"] = sources.Length,
+                ["durationMs"] = stopwatch.Elapsed.TotalMilliseconds
+            }),
+        access.UsePrivilegedDatabase,
+        cancellationToken);
+
     var answer = sources.Length == 0
         ? "I could not find enough indexed document context to answer this question. Upload and index a relevant document first, then try again."
         : $"Based on the indexed documents, the most relevant source is from {sources[0].FileName}: \"{(sources[0].Text.Length > 400 ? sources[0].Text[..400] + "..." : sources[0].Text)}\"";
 
-    var response = new DocumentAskResponse(
+    return Results.Ok(new DocumentAskResponse(
         request.Question,
         answer,
         sources.Length,
-        sources);
+        sources));
+});
 
-    return Results.Ok(response);
+var auditApi = app.MapGroup("/api/audit")
+    .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+
+auditApi.MapGet("/events", async (
+    int? limit,
+    ClaimsPrincipal principal,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
+    CancellationToken cancellationToken) =>
+{
+    var access = DocumentAccessContext.FromPrincipal(principal);
+    var query = new AuditEventQuery(
+        TenantId: access.CanAccessAllTenants ? null : access.TenantId,
+        BypassTenantIsolation: access.UsePrivilegedDatabase,
+        Limit: limit ?? 100);
+    var events = await auditRepository.GetRecentAsync(query, cancellationToken);
+
+    await auditRepository.AppendAsync(
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.AuditEventsRead,
+            "read",
+            "audit_event",
+            resourceId: null,
+            outcome: "success",
+            details: new Dictionary<string, object?>
+            {
+                ["requestedLimit"] = query.Limit,
+                ["resultCount"] = events.Count
+            }),
+        access.UsePrivilegedDatabase,
+        cancellationToken);
+
+    return Results.Ok(events);
 });
 
 app.Run();
+
+static string RequireCorrelationId(ICorrelationContextAccessor accessor) =>
+    accessor.CorrelationId ?? CorrelationIdMiddleware.ResolveCorrelationId(null);
 
 public partial class Program
 {
