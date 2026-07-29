@@ -11,6 +11,7 @@
 ## Security
 
 - [Authentication and document authorization](AUTHENTICATION_AND_AUTHORIZATION.md)
+- [Database-enforced tenant isolation](TENANT_ISOLATION.md)
 - [Security policy](../SECURITY.md)
 
 ## Development and Operations
