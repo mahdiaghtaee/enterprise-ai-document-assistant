@@ -8,33 +8,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- Fail-closed JWT bearer authentication with issuer, audience, signature, lifetime, and required-subject validation.
-- `User` and `Admin` role-based access policies.
-- Immutable document ownership derived from the authenticated JWT `sub` claim.
-- Owner-aware PostgreSQL and in-memory document repositories.
-- Owner-filtered processing status, semantic search, grounded answers, and source retrieval.
-- An idempotent PostgreSQL ownership migration with legacy-document backfill, nonblank constraint, and owner/date index.
-- A dependency-free local JWT token helper and authenticated Web UI flow.
-- Negative security tests for anonymous access, missing subject claims, and cross-user retrieval.
+- Fail-closed JWT bearer authentication with issuer, audience, signature, lifetime, required-subject, tenant, and role validation.
+- Tenant-scoped `User` and `Admin` policies plus an explicit cross-tenant `PlatformAdmin` role.
+- Immutable document ownership and tenant identity derived from authenticated JWT claims.
+- Owner- and tenant-aware PostgreSQL and in-memory document repositories.
+- Tenant-filtered processing status, semantic search, grounded answers, and source retrieval.
+- Separate non-superuser PostgreSQL roles for tenant-restricted runtime access and privileged worker/platform access.
+- Forced PostgreSQL Row-Level Security on documents, semantic chunks, and ingestion jobs.
+- Tenant constraints, indexes, composite foreign keys, and legacy-data backfill.
+- A transaction-local PostgreSQL tenant session context that fails closed when absent.
+- Tenant-aware local JWT helper, Swagger flow, Web UI, and demo script.
+- Negative API tests for anonymous, missing-claim, cross-user, and cross-tenant access.
+- Direct PostgreSQL tests for cross-tenant reads, cross-tenant writes, and missing tenant context.
+- Compose checks for RLS, role flags, policies, tenant persistence, and authorization across API restart.
 
 ### Changed
 
-- Every `/api/documents` endpoint now requires authentication; `/health` remains anonymous.
-- Document metadata and the initial ingestion job remain atomic while persisting the authenticated owner.
-- The background worker preserves ownership in semantic-index records.
-- Compose CI now verifies `401` behavior, user isolation, administrator visibility, owner persistence, and retrieval after API restart.
-- Documentation now distinguishes completed user-level ownership from remaining tenant, audit, encryption, and production identity-provider work.
+- Every `/api/documents` endpoint requires a token containing `sub`, `tenant_id`, and a supported role; `/health` remains anonymous.
+- `Admin` is now scoped to all owners inside one tenant rather than all documents globally.
+- Only `PlatformAdmin` uses the privileged cross-tenant database path.
+- Document metadata and the initial ingestion job remain atomic while persisting owner and tenant identity.
+- Background processing preserves tenant and owner identity in semantic-index records.
+- Docker Compose now uses separate tenant-runtime and privileged PostgreSQL credentials.
+- Public record parameter order remains backward compatible, with new tenant parameters appended after existing ownership parameters.
+- Documentation now treats tenant isolation as delivered while retaining explicit production limitations.
 
 ### Migration notes
 
-- Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql` automatically.
-- Existing PostgreSQL volumes require a reviewed manual application of the idempotent ownership migration after backup.
-- Existing documents are assigned to the explicit `legacy-system` owner.
-- API clients must send `Authorization: Bearer <token>` for document operations.
+- Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql` and `infra/postgres/init/zzzzz-tenant-isolation.sql` automatically.
+- Existing PostgreSQL volumes require a reviewed manual migration after backup because entrypoint scripts do not rerun.
+- Existing documents are assigned to `legacy-system` and `legacy-tenant`; production data should be mapped to real tenants before deployment.
+- Deployments must supply strong `APP_DB_PASSWORD` and `PRIVILEGED_DB_PASSWORD` secrets.
+- API clients must send `Authorization: Bearer <token>` with `sub`, `tenant_id`, and role claims.
 
 ### Known limitations
 
-- Tenant/workspace isolation, audit logging, token revocation, managed key rotation, encrypted storage, and centralized secret management are not implemented.
+- Tenant provisioning, memberships, invitations, domain verification, quotas, retention, and deletion workflows are not implemented.
+- Audit logging, correlation identifiers, OpenTelemetry, token revocation, managed key rotation, encrypted storage, and centralized secret management remain absent.
+- The reference Compose deployment loads privileged worker/platform credentials into the API process; production should separate that trust boundary.
 - The repository signing key and token helper are for local development only.
 - The project remains unsuitable for confidential or regulated documents.
 
