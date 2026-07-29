@@ -50,8 +50,8 @@ public sealed record CreateDocumentIngestionRequest(
     long SizeInBytes,
     string StoragePath,
     int MaxAttempts = DocumentIngestionDefaults.MaxAttempts,
-    string TenantId = TenantIsolation.LegacyTenantId,
-    string OwnerId = DocumentOwnership.LegacyOwnerId);
+    string OwnerId = DocumentOwnership.LegacyOwnerId,
+    string TenantId = TenantIsolation.LegacyTenantId);
 
 public sealed record DocumentIngestionCreationResult(
     DocumentRecord Document,
