@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace EnterpriseDocumentAssistant.Api.Observability;
@@ -59,7 +61,7 @@ public sealed partial class CorrelationIdMiddleware
 
         using var scope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["CorrelationId"] = correlationId,
+            ["CorrelationLogId"] = CreateLogCorrelationId(correlationId),
             ["TraceId"] = Activity.Current?.TraceId.ToString()
         });
 
@@ -92,6 +94,13 @@ public sealed partial class CorrelationIdMiddleware
         }
 
         return Guid.NewGuid().ToString("N");
+    }
+
+    public static string CreateLogCorrelationId(string correlationId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(correlationId));
+        return Convert.ToHexString(digest.AsSpan(0, 16));
     }
 
     [GeneratedRegex("^[A-Za-z0-9._:-]+$", RegexOptions.CultureInvariant)]
