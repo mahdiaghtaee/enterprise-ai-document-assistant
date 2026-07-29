@@ -33,12 +33,18 @@ public sealed class DocumentIngestionProcessorTests
                 [new EmbeddingInput(Guid.NewGuid(), "query", 0, "finance approval")]),
             CancellationToken.None);
         var matches = await semanticIndex.SearchAsync(
-            new SemanticSearchRequest(queryEmbedding.Vectors[0].Values, 3),
+            new SemanticSearchRequest(
+                queryEmbedding.Vectors[0].Values,
+                3,
+                document.TenantId,
+                document.OwnerId),
             CancellationToken.None);
 
         Assert.Single(matches);
         Assert.Equal(documentId, matches[0].Record.DocumentId);
         Assert.Equal("processor-success.txt", matches[0].Record.FileName);
+        Assert.Equal(document.TenantId, matches[0].Record.TenantId);
+        Assert.Equal(document.OwnerId, matches[0].Record.OwnerId);
     }
 
     [Fact]
