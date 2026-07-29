@@ -28,6 +28,9 @@ CREATE INDEX IF NOT EXISTS ix_audit_events_tenant_occurred_at
 CREATE INDEX IF NOT EXISTS ix_audit_events_event_type_occurred_at
     ON audit_events (event_type, occurred_at DESC);
 
+REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+    ON audit_events
+    FROM document_app, document_privileged;
 GRANT SELECT, INSERT ON audit_events TO document_app, document_privileged;
 GRANT USAGE, SELECT ON SEQUENCE audit_events_id_seq TO document_app, document_privileged;
 
