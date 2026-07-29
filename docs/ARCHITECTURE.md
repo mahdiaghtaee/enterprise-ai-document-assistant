@@ -1,269 +1,215 @@
 # Architecture Overview
 
-Enterprise AI Document Assistant is a local-first reference system for durable document ingestion, persistent semantic retrieval, and source-aware answers.
+Enterprise AI Document Assistant is a local-first reference system for tenant-isolated document ingestion, durable background processing, persistent semantic retrieval, and source-aware answers.
 
-The repository contains ASP.NET Core and FastAPI services. The executable document pipeline runs in an ASP.NET Core hosted worker. FastAPI remains a small HTTP boundary for future Python-specific integrations.
+The executable document pipeline runs in ASP.NET Core. FastAPI remains a small boundary for future Python-specific integrations.
 
-## Current High-Level Flow
+## High-Level Flow
 
 ```text
-User / Client
+Authenticated client
     |
+    | JWT: sub + tenant_id + role
     v
 ASP.NET Core API
     |
-    |-- validate and store uploaded files
-    |-- atomically persist document metadata and a Pending job
-    |-- return 202 Accepted with a processing-status URL
+    |-- User: tenant + owner scope
+    |-- Admin: tenant scope
+    |-- PlatformAdmin: explicit privileged scope
     |
-    +--> PostgreSQL + pgvector
-    |       - document metadata
-    |       - durable ingestion jobs
-    |       - persistent chunks and embeddings
-    |       - cosine-distance retrieval
+    +--> Local document storage
     |
-    +--> ASP.NET Core hosted worker
-    |       - claim jobs with FOR UPDATE SKIP LOCKED
-    |       - extract supported text locally
-    |       - split text into chunks
-    |       - generate deterministic embeddings
-    |       - write chunks through ISemanticIndexStore
+    +--> PostgreSQL
+    |       - document_app: forced RLS, transaction-local tenant context
+    |       - document_privileged: worker/platform policy
+    |       - documents, chunks, and jobs tagged with tenant_id
+    |       - pgvector cosine retrieval
+    |
+    +--> Hosted ingestion worker
+    |       - claim with FOR UPDATE SKIP LOCKED
+    |       - extract, chunk, embed, and persist
+    |       - preserve owner and tenant identity
     |       - retry, recover, complete, or fail jobs
     |
-    +--> Redis
-    |       - available for future caching or coordination
+    +--> Redis infrastructure
     |
-    +--> FastAPI service
-            - health endpoint
-            - indexing-boundary endpoint
-            - future Python-specific processing
+    +--> FastAPI integration boundary
 ```
 
-## Why Keep a Python Service Boundary?
+## Security and Trust Boundaries
 
-Python has a broad ecosystem for document parsing, embeddings, machine learning, and model providers. The HTTP boundary allows those capabilities to be added later without changing the public API contract.
+### JWT boundary
 
-The current implementation does not pretend that this split is already complete. Extraction, chunking, deterministic embeddings, retrieval, and answer construction currently run in .NET.
+Every document request requires:
 
-## Components
+- validated issuer, audience, signature, lifetime, and token timestamps;
+- stable `sub` user identity;
+- stable `tenant_id` organization or workspace identity;
+- one of `User`, `Admin`, or `PlatformAdmin`.
 
-### ASP.NET Core API and Worker
+The API never accepts owner or tenant identity from document request payloads.
 
-Current responsibilities:
+### Application authorization boundary
 
-- public REST endpoints and Swagger/OpenAPI;
-- upload validation and local file storage;
-- atomic PostgreSQL document and initial job persistence;
-- `202 Accepted` upload responses with job and status links;
-- hosted background job claiming and execution;
-- bounded retry scheduling and terminal failure handling;
-- abandoned-job recovery after a processing timeout;
-- graceful-shutdown return to the queue;
-- public processing-status reporting;
-- PostgreSQL-backed document metadata;
-- plain-text extraction and fixed-size chunking;
-- deterministic embedding generation;
-- configurable semantic-index provider selection;
-- PostgreSQL/pgvector persistence and similarity search in Docker Compose;
-- in-memory semantic-index provider for isolated tests and lightweight hosts;
-- deterministic source-aware answer construction.
+- `User` receives `tenant_id` plus `owner_id = sub` filtering;
+- `Admin` bypasses the owner filter but remains inside one tenant;
+- `PlatformAdmin` can cross tenants only through the explicit privileged database path.
 
-Planned responsibilities:
+Document listing, processing status, Search, Ask, and returned source text share this context.
 
+### Database boundary
+
+The migration creates two non-superuser PostgreSQL roles:
+
+- `document_app`: runtime role restricted by forced Row-Level Security;
+- `document_privileged`: background worker and platform-administration role allowed by explicit privileged policies.
+
+Neither role has `SUPERUSER` or `BYPASSRLS`.
+
+Runtime operations execute inside a transaction after:
+
+```sql
+SELECT set_config('app.tenant_id', @tenantId, true);
+```
+
+RLS policies compare row `tenant_id` with the transaction-local value. Missing context produces no matching rows, while cross-tenant writes fail the `WITH CHECK` policy.
+
+## Data Model
+
+### Documents
+
+Stores file metadata, processing status, `owner_id`, and `tenant_id`.
+
+### Ingestion jobs
+
+Stores durable lifecycle state, attempts, retry availability, timestamps, controlled error information, and `tenant_id`.
+
+A composite tenant/document foreign key prevents a job from referencing a document in another tenant.
+
+### Semantic chunks
+
+Stores document chunk text, pgvector embeddings, chunk position, and `tenant_id`.
+
+A composite tenant/document foreign key prevents an indexed chunk from changing tenant independently of its document.
+
+## Upload and Enqueue Flow
+
+```text
+Validate JWT and access policy
+    |
+Derive owner and tenant from claims
+    |
+Validate and store file
+    |
+Open tenant-scoped PostgreSQL transaction
+    |
+Insert document + Pending job atomically
+    |
+Commit and return 202 Accepted
+```
+
+If database persistence fails after file storage, the newly stored file is removed.
+
+## Worker Flow
+
+```text
+Privileged worker polls Pending jobs
+    |
+Claim one row with FOR UPDATE SKIP LOCKED
+    |
+Load document metadata and stored tenant/owner
+    |
+Extract -> Chunk -> Embed -> Upsert tenant-tagged vectors
+    |
+Complete, retry, recover, or fail
+```
+
+The worker uses the privileged connection because it must process jobs across tenants. The reference Compose deployment hosts this worker in the API process; production should separate that privileged trust boundary.
+
+## Search and Ask Flow
+
+```text
+Validate JWT
+    |
+Build owner/tenant access context
+    |
+Generate deterministic query embedding
+    |
+Open RLS-scoped or privileged PostgreSQL transaction
+    |
+Filter authorized rows before pgvector ranking
+    |
+Return ranked chunks or source-aware answer
+```
+
+`User` requests apply owner and tenant scope. `Admin` applies tenant scope. `PlatformAdmin` uses the explicit privileged path.
+
+## Retry and Recovery
+
+- pending jobs are claimed transactionally;
+- attempt counts are bounded;
+- retryable failures return to `Pending` after a delay;
+- permanent or exhausted failures become `Failed`;
+- abandoned `Processing` jobs are recovered after a timeout;
+- graceful shutdown requeues interrupted work without consuming an attempt.
+
+## Verification Strategy
+
+The repository verifies:
+
+- JWT and role enforcement;
+- owner isolation inside one tenant;
+- administrator access across owners only inside one tenant;
+- platform administrator access across tenants;
+- direct RLS reads under multiple tenant contexts;
+- rejection of cross-tenant database writes;
+- fail-closed reads without tenant context;
+- tenant constraints, composite foreign keys, roles, policies, and forced RLS;
+- atomic enqueue and ingestion lifecycle behavior;
+- retrieval persistence and authorization after API restart.
+
+## Component Responsibilities
+
+### ASP.NET Core
+
+- public REST API and Swagger;
 - authentication and authorization;
-- tenant or workspace isolation;
-- audit logging;
-- structured operational telemetry;
-- stable provider contracts for external model services.
-
-### Python FastAPI Service
-
-Current responsibilities:
-
-- service health endpoint;
-- indexing-boundary endpoint returning a placeholder queued status.
-
-Potential future responsibilities, only when implemented and tested:
-
-- Python-specific document parsing;
-- external or local embedding providers;
-- model-provider integration;
-- specialized retrieval or reranking.
+- tenant/owner access context;
+- local file storage;
+- atomic document and job persistence;
+- hosted ingestion worker;
+- text extraction, chunking, deterministic embeddings;
+- semantic search and source-aware answers.
 
 ### PostgreSQL and pgvector
 
-Current responsibilities:
+- durable metadata, jobs, chunks, and embeddings;
+- forced tenant Row-Level Security;
+- role and policy enforcement;
+- job claiming and lifecycle updates;
+- vector similarity ranking.
 
-- document metadata persistence;
-- durable ingestion jobs and lifecycle state;
-- one-active-job-per-document enforcement;
-- ordered pending-job claim indexes;
-- persistent document chunks;
-- eight-dimensional deterministic embeddings;
-- HNSW cosine-distance index;
-- vector ranking used by search and ask endpoints.
+### FastAPI
 
-Planned responsibilities:
-
-- users, workspaces, and access-control data;
-- audit and retention data.
+- health and placeholder indexing-boundary endpoints;
+- future Python-specific parsing or provider integrations only when justified and tested.
 
 ### Redis
 
-Redis is part of the stack but is not yet used by the application workflow. Potential uses include:
-
-- short-lived caching;
-- coordination that cannot be expressed safely through the PostgreSQL job model;
-- distributed rate limiting;
-- transient operational state.
-
-The current durable queue intentionally remains PostgreSQL-backed until a measured requirement justifies another coordination system.
-
-### Semantic Index Providers
-
-`ISemanticIndexStore` keeps ingestion, search, and ask flows independent of storage-specific types.
-
-Supported implementations:
-
-- `InMemorySemanticIndexStore`: process-local, deterministic, and suitable for isolated tests;
-- `PostgresSemanticIndexStore`: transactional upsert, pgvector cosine search, and persistence across API restarts.
-
-Provider selection is configuration-driven. Docker Compose selects `Postgres`; the default when configuration is absent is `InMemory`.
-
-## Request Flow: Upload and Enqueue
-
-```text
-Client uploads a supported document
-    |
-    v
-ASP.NET Core validates and saves the file
-    |
-    v
-One PostgreSQL transaction inserts:
-    - document metadata
-    - initial Pending ingestion job
-    |
-    +--> failure: rollback database rows and remove the stored file
-    |
-    v
-API returns 202 Accepted with document ID, job ID, and status URL
-```
-
-The upload request does not wait for extraction, chunking, embeddings, or semantic-index writes.
-
-## Worker Flow: Claim and Process
-
-```text
-Hosted worker polls for available Pending jobs
-    |
-    v
-SELECT candidate FOR UPDATE SKIP LOCKED
-    |
-    v
-Atomically set Processing and increment attempt_count
-    |
-    v
-Load document metadata and stored file
-    |
-    v
-Extract -> Chunk -> Embed -> ISemanticIndexStore.UpsertAsync
-    |
-    +--> success: Completed + document status indexed
-    +--> retryable failure: Pending with delayed available_at
-    +--> permanent/exhausted failure: Failed
-```
-
-`SKIP LOCKED` allows multiple API instances to claim separate jobs without waiting on one another or processing the same active job concurrently.
-
-## Recovery Flow
-
-The worker periodically identifies `Processing` rows whose `started_at` is older than the configured processing timeout.
-
-- if attempts remain, the job returns to `Pending` with `worker-timeout` details;
-- if the attempt limit is exhausted, the job becomes `Failed`;
-- graceful shutdown returns the interrupted job to `Pending` and restores the consumed attempt.
-
-## Request Flow: Processing Status
-
-```text
-Client requests /api/documents/{documentId}/processing-status
-    |
-    v
-API loads the latest job for the document
-    |
-    v
-Response includes state, attempts, lifecycle timestamps, controlled errors, and terminal flag
-```
-
-## Request Flow: Search
-
-```text
-Client submits a query
-    |
-    v
-ASP.NET Core validates and embeds the query
-    |
-    v
-ISemanticIndexStore performs similarity search
-    |
-    +--> Postgres provider: pgvector cosine distance
-    +--> In-memory provider: deterministic cosine calculation
-    |
-    v
-The API returns ranked chunks with source metadata
-```
-
-## Request Flow: Ask
-
-```text
-Client submits a question
-    |
-    v
-The API embeds the question and retrieves relevant chunks
-    |
-    v
-A deterministic answer is assembled from source context
-    |
-    v
-The API returns the answer and source records
-```
-
-This endpoint demonstrates retrieval and source attribution. It is not a production language-model implementation.
-
-## Persistence and Failure Boundaries
-
-- Document metadata and the initial job are inserted in one transaction.
-- Failed enqueue persistence removes the locally stored file.
-- Job claims move the selected row to `Processing` in the same transaction as row selection.
-- A partial unique index prevents multiple active jobs for one document.
-- Chunk upserts are performed inside a PostgreSQL transaction.
-- `(document_id, chunk_index)` provides idempotent replacement semantics across retry execution.
-- Chunk rows are deleted when the owning document row is deleted.
-- Embedding dimensions and finite numeric values are validated before database access.
-- API container restart does not remove job history or pgvector records.
-- Removing the PostgreSQL volume removes local metadata, job history, and vector records.
-
-## Design Principles
-
-- describe implemented behavior separately from planned behavior;
-- preserve deterministic execution without external AI credentials;
-- keep public API contracts independent of pgvector-specific types;
-- use configuration for provider and worker settings;
-- prefer durable PostgreSQL state before adding distributed coordination components;
-- verify persistence and retry behavior through integration tests;
-- keep source attribution in search and answer responses.
+Redis is available for future caching, rate limiting, or coordination but is not part of the current durable workflow.
 
 ## Production Gaps
 
-Before handling sensitive business documents, the system requires:
+Before sensitive-data use, the system still requires:
 
-- authentication and role-based authorization;
-- tenant or workspace isolation;
-- secure storage and malware scanning;
-- secret management and restricted network exposure;
-- audit events and retention policies;
-- structured logging, metrics, and distributed tracing;
-- retrieval evaluation and defenses against unauthorized retrieval or prompt injection;
-- operational load, failover, and capacity validation.
+- tenant provisioning, memberships, invitation and deactivation workflows;
+- external identity-provider synchronization, key rotation, and token revocation;
+- durable audit events and tamper-resistant retention;
+- correlation identifiers, metrics, and OpenTelemetry traces;
+- encrypted storage, centralized secrets, TLS, and restricted networking;
+- malware scanning and file-signature validation;
+- separate privileged worker/platform deployment;
+- backup, restore, deletion, load, failover, and capacity validation;
+- retrieval evaluation and prompt-injection controls.
 
-See [SECURITY.md](../SECURITY.md), [BACKGROUND_INGESTION.md](BACKGROUND_INGESTION.md), [PGVECTOR_SCHEMA.md](PGVECTOR_SCHEMA.md), and [ROADMAP.md](ROADMAP.md).
+See [Tenant Isolation](TENANT_ISOLATION.md), [Authentication and Authorization](AUTHENTICATION_AND_AUTHORIZATION.md), [Security Policy](../SECURITY.md), [Background Ingestion](BACKGROUND_INGESTION.md), and [Roadmap](ROADMAP.md).
