@@ -27,9 +27,7 @@ _correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 
 def configure_observability(app: FastAPI) -> Counter:
-    service_name = os.getenv(
-        "OTEL_SERVICE_NAME", "enterprise-document-assistant-ai-service"
-    )
+    service_name = os.getenv("OTEL_SERVICE_NAME", "enterprise-document-assistant-ai-service")
     resource = Resource.create(
         {
             "service.name": service_name,
@@ -49,13 +47,9 @@ def configure_observability(app: FastAPI) -> Counter:
     metric_readers = []
     if endpoint:
         metric_readers.append(
-            PeriodicExportingMetricReader(
-                OTLPMetricExporter(endpoint=f"{endpoint}/v1/metrics")
-            )
+            PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=f"{endpoint}/v1/metrics"))
         )
-    metrics.set_meter_provider(
-        MeterProvider(resource=resource, metric_readers=metric_readers)
-    )
+    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=metric_readers))
 
     FastAPIInstrumentor.instrument_app(app, excluded_urls="health")
     meter = metrics.get_meter("EnterpriseDocumentAssistant.AiService")
