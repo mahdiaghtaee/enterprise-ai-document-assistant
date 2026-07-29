@@ -151,14 +151,17 @@ public sealed class AuthenticationAndAuthorizationTests : IClassFixture<WebAppli
     public void In_memory_repository_filters_documents_by_tenant_and_owner()
     {
         var repository = new InMemoryDocumentRepository();
-        var ownerA = repository.Add("a.txt", "text/plain", 1, "a", "tenant-a", "user-a");
-        var ownerB = repository.Add("b.txt", "text/plain", 1, "b", "tenant-a", "user-b");
-        var tenantB = repository.Add("c.txt", "text/plain", 1, "c", "tenant-b", "user-a");
+        var ownerA = repository.Add(
+            "a.txt", "text/plain", 1, "a", ownerId: "user-a", tenantId: "tenant-a");
+        var ownerB = repository.Add(
+            "b.txt", "text/plain", 1, "b", ownerId: "user-b", tenantId: "tenant-a");
+        var tenantB = repository.Add(
+            "c.txt", "text/plain", 1, "c", ownerId: "user-a", tenantId: "tenant-b");
 
-        Assert.Equal(new[] { ownerA }, repository.GetAll("tenant-a", "user-a"));
-        Assert.Equal(2, repository.GetAll("tenant-a").Count);
-        Assert.Null(repository.GetById(ownerB.Id, "tenant-a", "user-a"));
-        Assert.Null(repository.GetById(tenantB.Id, "tenant-a"));
+        Assert.Equal(new[] { ownerA }, repository.GetAll(ownerId: "user-a", tenantId: "tenant-a"));
+        Assert.Equal(2, repository.GetAll(tenantId: "tenant-a").Count);
+        Assert.Null(repository.GetById(ownerB.Id, ownerId: "user-a", tenantId: "tenant-a"));
+        Assert.Null(repository.GetById(tenantB.Id, tenantId: "tenant-a"));
         Assert.Equal(3, repository.GetAll(bypassTenantIsolation: true).Count);
     }
 
@@ -183,8 +186,8 @@ public sealed class AuthenticationAndAuthorizationTests : IClassFixture<WebAppli
                 vector.ChunkIndex,
                 vector.Text,
                 vector.Values,
-                inputs[index].TenantId,
-                inputs[index].OwnerId)).ToArray(),
+                OwnerId: inputs[index].OwnerId,
+                TenantId: inputs[index].TenantId)).ToArray(),
             CancellationToken.None);
     }
 
