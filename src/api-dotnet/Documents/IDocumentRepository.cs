@@ -5,14 +5,14 @@ namespace EnterpriseDocumentAssistant.Api.Documents;
 public interface IDocumentRepository
 {
     IReadOnlyCollection<DocumentRecord> GetAll(
-        string? tenantId = null,
         string? ownerId = null,
+        string? tenantId = null,
         bool bypassTenantIsolation = false);
 
     DocumentRecord? GetById(
         Guid documentId,
-        string? tenantId = null,
         string? ownerId = null,
+        string? tenantId = null,
         bool bypassTenantIsolation = false);
 
     DocumentRecord Add(
@@ -20,8 +20,8 @@ public interface IDocumentRepository
         string? contentType,
         long sizeInBytes,
         string storagePath,
-        string tenantId = TenantIsolation.LegacyTenantId,
-        string ownerId = DocumentOwnership.LegacyOwnerId);
+        string ownerId = DocumentOwnership.LegacyOwnerId,
+        string tenantId = TenantIsolation.LegacyTenantId);
 
     void UpdateStatus(Guid documentId, string status);
 }
