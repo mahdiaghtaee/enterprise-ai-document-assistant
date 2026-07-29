@@ -25,8 +25,8 @@ public sealed record DocumentRecord(
     string StoragePath,
     string Status,
     DateTimeOffset CreatedAt,
-    string TenantId = TenantIsolation.LegacyTenantId,
-    string OwnerId = DocumentOwnership.LegacyOwnerId);
+    string OwnerId = DocumentOwnership.LegacyOwnerId,
+    string TenantId = TenantIsolation.LegacyTenantId);
 
 public sealed record CreateDocumentRequest(
     string FileName,
