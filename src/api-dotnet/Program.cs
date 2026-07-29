@@ -103,9 +103,9 @@ documentApi.MapGet("/", (ClaimsPrincipal principal, IDocumentRepository reposito
 {
     var access = DocumentAccessContext.FromPrincipal(principal);
     return Results.Ok(repository.GetAll(
-        access.TenantFilter,
-        access.OwnerFilter,
-        access.UsePrivilegedDatabase));
+        ownerId: access.OwnerFilter,
+        tenantId: access.TenantFilter,
+        bypassTenantIsolation: access.UsePrivilegedDatabase));
 });
 
 documentApi.MapPost("/", (
@@ -124,8 +124,8 @@ documentApi.MapPost("/", (
         request.ContentType,
         0,
         "metadata-only",
-        access.TenantId,
-        access.UserId);
+        ownerId: access.UserId,
+        tenantId: access.TenantId);
     return Results.Created($"/api/documents/{document.Id}", document);
 });
 
@@ -160,8 +160,8 @@ documentApi.MapPost("/upload", async (
                 storedDocument.ContentType,
                 storedDocument.SizeInBytes,
                 storedDocument.StoragePath,
-                TenantId: access.TenantId,
-                OwnerId: access.UserId),
+                OwnerId: access.UserId,
+                TenantId: access.TenantId),
             cancellationToken);
     }
     catch
@@ -196,9 +196,9 @@ documentApi.MapGet("/{documentId:guid}/processing-status", async (
     var access = DocumentAccessContext.FromPrincipal(principal);
     var document = documentRepository.GetById(
         documentId,
-        access.TenantFilter,
-        access.OwnerFilter,
-        access.UsePrivilegedDatabase);
+        ownerId: access.OwnerFilter,
+        tenantId: access.TenantFilter,
+        bypassTenantIsolation: access.UsePrivilegedDatabase);
 
     if (document is null)
     {
@@ -243,9 +243,9 @@ documentApi.MapPost("/search", async (
         new SemanticSearchRequest(
             queryEmbedding,
             request.TopK,
-            access.TenantFilter,
-            access.OwnerFilter,
-            access.UsePrivilegedDatabase),
+            OwnerId: access.OwnerFilter,
+            TenantId: access.TenantFilter,
+            BypassTenantIsolation: access.UsePrivilegedDatabase),
         cancellationToken);
 
     var response = new DocumentSearchResponse(
@@ -294,9 +294,9 @@ documentApi.MapPost("/ask", async (
         new SemanticSearchRequest(
             questionEmbedding,
             topK,
-            access.TenantFilter,
-            access.OwnerFilter,
-            access.UsePrivilegedDatabase),
+            OwnerId: access.OwnerFilter,
+            TenantId: access.TenantFilter,
+            BypassTenantIsolation: access.UsePrivilegedDatabase),
         cancellationToken);
 
     var sources = results.Select(result => new DocumentAskSource(
