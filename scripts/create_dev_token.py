@@ -25,7 +25,7 @@ def encode_segment(value: dict[str, Any]) -> str:
     return base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
 
 
-def create_token(user_id: str, role: str, lifetime_seconds: int) -> str:
+def create_token(user_id: str, role: str, tenant_id: str, lifetime_seconds: int) -> str:
     now = int(time.time())
     issuer = os.getenv("JWT_ISSUER", DEFAULT_ISSUER)
     audience = os.getenv("JWT_AUDIENCE", DEFAULT_AUDIENCE)
@@ -37,6 +37,7 @@ def create_token(user_id: str, role: str, lifetime_seconds: int) -> str:
             "sub": user_id,
             "name": user_id,
             "role": role,
+            "tenant_id": tenant_id,
             "iss": issuer,
             "aud": audience,
             "iat": now,
@@ -57,16 +58,30 @@ def create_token(user_id: str, role: str, lifetime_seconds: int) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create a local document API JWT.")
     parser.add_argument("--user", default="demo-user", help="JWT subject claim")
-    parser.add_argument("--role", choices=("User", "Admin"), default="User")
+    parser.add_argument("--tenant", default="demo-tenant", help="JWT tenant_id claim")
+    parser.add_argument(
+        "--role",
+        choices=("User", "Admin", "PlatformAdmin"),
+        default="User",
+    )
     parser.add_argument("--lifetime-seconds", type=int, default=3600)
     args = parser.parse_args()
 
     if not args.user.strip():
         parser.error("--user must not be blank")
+    if not args.tenant.strip():
+        parser.error("--tenant must not be blank")
     if args.lifetime_seconds <= 0:
         parser.error("--lifetime-seconds must be greater than zero")
 
-    print(create_token(args.user.strip(), args.role, args.lifetime_seconds))
+    print(
+        create_token(
+            args.user.strip(),
+            args.role,
+            args.tenant.strip(),
+            args.lifetime_seconds,
+        )
+    )
     return 0
 
 
