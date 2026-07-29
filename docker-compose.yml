@@ -7,7 +7,8 @@ services:
       - "${API_HOST_PORT:-5000}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=${POSTGRES_USER:-documents};Password=${POSTGRES_PASSWORD:-documents}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_app;Password=${APP_DB_PASSWORD:-document-app-local}
+      ConnectionStrings__PostgresPrivileged: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_privileged;Password=${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
       SemanticIndex__Provider: Postgres
       Redis__ConnectionString: redis:6379
       AiService__BaseUrl: http://ai-service:8000
@@ -41,6 +42,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-documents}
       POSTGRES_USER: ${POSTGRES_USER:-documents}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-documents}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-document-app-local}
+      PRIVILEGED_DB_PASSWORD: ${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
