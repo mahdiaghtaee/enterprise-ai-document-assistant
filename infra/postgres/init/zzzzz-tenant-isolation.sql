@@ -162,7 +162,10 @@ $$;
 CREATE INDEX IF NOT EXISTS ix_document_ingestion_jobs_tenant_status
     ON document_ingestion_jobs (tenant_id, status, available_at, id);
 
-GRANT CONNECT ON DATABASE documents TO document_app, document_privileged;
+SELECT format(
+    'GRANT CONNECT ON DATABASE %I TO document_app, document_privileged',
+    current_database())
+\gexec
 GRANT USAGE ON SCHEMA public TO document_app, document_privileged;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO document_app, document_privileged;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO document_app, document_privileged;
