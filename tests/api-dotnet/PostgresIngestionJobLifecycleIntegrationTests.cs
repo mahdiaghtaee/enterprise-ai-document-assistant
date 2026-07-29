@@ -145,7 +145,9 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
                 "text/plain",
                 32,
                 $"/tmp/{prefix}-{marker}.txt",
-                maxAttempts),
+                maxAttempts,
+                "tenant-a",
+                "user-a"),
             CancellationToken.None);
     }
 
@@ -154,7 +156,8 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Postgres"] = ConnectionString
+                ["ConnectionStrings:Postgres"] = ConnectionString,
+                ["ConnectionStrings:PostgresPrivileged"] = ConnectionString
             })
             .Build();
 
@@ -172,13 +175,19 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
                 size_in_bytes BIGINT NOT NULL,
                 storage_path TEXT NOT NULL,
                 status TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL
+                created_at TIMESTAMPTZ NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant',
+                owner_id TEXT NOT NULL DEFAULT 'legacy-system'
             );
+
+            ALTER TABLE documents ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant';
+            ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT 'legacy-system';
 
             CREATE TABLE IF NOT EXISTS document_ingestion_jobs
             (
                 id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 document_id UUID NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+                tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant',
                 status TEXT NOT NULL DEFAULT 'Pending',
                 attempt_count INTEGER NOT NULL DEFAULT 0,
                 max_attempts INTEGER NOT NULL DEFAULT 3,
@@ -195,6 +204,8 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
                 CONSTRAINT ck_document_ingestion_jobs_attempts
                     CHECK (attempt_count >= 0 AND max_attempts > 0 AND attempt_count <= max_attempts)
             );
+
+            ALTER TABLE document_ingestion_jobs ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'legacy-tenant';
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_document_ingestion_jobs_active_document
                 ON document_ingestion_jobs (document_id)
