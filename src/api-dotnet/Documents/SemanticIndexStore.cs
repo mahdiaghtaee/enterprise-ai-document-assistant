@@ -15,8 +15,8 @@ public sealed record SemanticIndexRecord(
     int ChunkIndex,
     string Text,
     IReadOnlyList<float> Embedding,
-    string TenantId = TenantIsolation.LegacyTenantId,
-    string OwnerId = DocumentOwnership.LegacyOwnerId)
+    string OwnerId = DocumentOwnership.LegacyOwnerId,
+    string TenantId = TenantIsolation.LegacyTenantId)
 {
     public int Dimensions => Embedding.Count;
 
@@ -47,16 +47,16 @@ public sealed record SemanticIndexRecord(
             throw new ArgumentException("Embedding values are required.", nameof(Embedding));
         }
 
-        TenantIsolation.Normalize(TenantId);
         DocumentOwnership.Normalize(OwnerId);
+        TenantIsolation.Normalize(TenantId);
     }
 }
 
 public sealed record SemanticSearchRequest(
     IReadOnlyList<float> QueryEmbedding,
     int TopK = 5,
-    string? TenantId = null,
     string? OwnerId = null,
+    string? TenantId = TenantIsolation.LegacyTenantId,
     bool BypassTenantIsolation = false)
 {
     public void Validate()
