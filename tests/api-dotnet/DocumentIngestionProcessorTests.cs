@@ -36,8 +36,8 @@ public sealed class DocumentIngestionProcessorTests
             new SemanticSearchRequest(
                 queryEmbedding.Vectors[0].Values,
                 3,
-                document.TenantId,
-                document.OwnerId),
+                OwnerId: document.OwnerId,
+                TenantId: document.TenantId),
             CancellationToken.None);
 
         Assert.Single(matches);
