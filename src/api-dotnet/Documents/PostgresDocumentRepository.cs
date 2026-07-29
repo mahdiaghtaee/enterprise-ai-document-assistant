@@ -1,3 +1,4 @@
+using EnterpriseDocumentAssistant.Api.Security;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -5,15 +6,21 @@ namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public sealed class PostgresDocumentRepository : IDocumentRepository
 {
-    private readonly string _connectionString;
+    private readonly string _tenantConnectionString;
+    private readonly string _privilegedConnectionString;
 
     public PostgresDocumentRepository(IConfiguration configuration)
     {
-        _connectionString = configuration.GetConnectionString("Postgres")
+        _tenantConnectionString = configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
+        _privilegedConnectionString = configuration.GetConnectionString("PostgresPrivileged")
+            ?? _tenantConnectionString;
     }
 
-    public IReadOnlyCollection<DocumentRecord> GetAll(string? ownerId = null)
+    public IReadOnlyCollection<DocumentRecord> GetAll(
+        string? tenantId = null,
+        string? ownerId = null,
+        bool bypassTenantIsolation = false)
     {
         const string sql = """
             SELECT id,
@@ -23,30 +30,36 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
                    storage_path,
                    status,
                    created_at,
+                   tenant_id,
                    owner_id
             FROM documents
             WHERE @ownerId IS NULL OR owner_id = @ownerId
             ORDER BY created_at DESC;
             """;
 
-        using var connection = new NpgsqlConnection(_connectionString);
-        connection.Open();
-
-        using var command = new NpgsqlCommand(sql, connection);
+        using var connection = OpenConnection(bypassTenantIsolation);
+        using var transaction = connection.BeginTransaction();
+        ApplyTenantContext(connection, transaction, tenantId, bypassTenantIsolation);
+        using var command = new NpgsqlCommand(sql, connection, transaction);
         AddOwnerParameter(command, ownerId);
         using var reader = command.ExecuteReader();
 
         var documents = new List<DocumentRecord>();
-
         while (reader.Read())
         {
             documents.Add(ReadDocument(reader));
         }
 
+        reader.Close();
+        transaction.Commit();
         return documents;
     }
 
-    public DocumentRecord? GetById(Guid documentId, string? ownerId = null)
+    public DocumentRecord? GetById(
+        Guid documentId,
+        string? tenantId = null,
+        string? ownerId = null,
+        bool bypassTenantIsolation = false)
     {
         const string sql = """
             SELECT id,
@@ -56,6 +69,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
                    storage_path,
                    status,
                    created_at,
+                   tenant_id,
                    owner_id
             FROM documents
             WHERE id = @documentId
@@ -63,14 +77,18 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             LIMIT 1;
             """;
 
-        using var connection = new NpgsqlConnection(_connectionString);
-        connection.Open();
-        using var command = new NpgsqlCommand(sql, connection);
+        using var connection = OpenConnection(bypassTenantIsolation);
+        using var transaction = connection.BeginTransaction();
+        ApplyTenantContext(connection, transaction, tenantId, bypassTenantIsolation);
+        using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("documentId", documentId);
         AddOwnerParameter(command, ownerId);
         using var reader = command.ExecuteReader();
 
-        return reader.Read() ? ReadDocument(reader) : null;
+        var document = reader.Read() ? ReadDocument(reader) : null;
+        reader.Close();
+        transaction.Commit();
+        return document;
     }
 
     public DocumentRecord Add(
@@ -78,6 +96,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         string? contentType,
         long sizeInBytes,
         string storagePath,
+        string tenantId = TenantIsolation.LegacyTenantId,
         string ownerId = DocumentOwnership.LegacyOwnerId)
     {
         var document = new DocumentRecord(
@@ -88,19 +107,20 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             storagePath,
             "uploaded",
             DateTimeOffset.UtcNow,
+            TenantIsolation.Normalize(tenantId),
             DocumentOwnership.Normalize(ownerId));
 
         const string sql = """
             INSERT INTO documents
-                (id, file_name, content_type, size_in_bytes, storage_path, status, created_at, owner_id)
+                (id, file_name, content_type, size_in_bytes, storage_path, status, created_at, tenant_id, owner_id)
             VALUES
-                (@id, @fileName, @contentType, @sizeInBytes, @storagePath, @status, @createdAt, @ownerId);
+                (@id, @fileName, @contentType, @sizeInBytes, @storagePath, @status, @createdAt, @tenantId, @ownerId);
             """;
 
-        using var connection = new NpgsqlConnection(_connectionString);
-        connection.Open();
-
-        using var command = new NpgsqlCommand(sql, connection);
+        using var connection = OpenConnection(bypassTenantIsolation: false);
+        using var transaction = connection.BeginTransaction();
+        PostgresTenantSession.Apply(connection, transaction, document.TenantId);
+        using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("id", document.Id);
         command.Parameters.AddWithValue("fileName", document.FileName);
         command.Parameters.AddWithValue(
@@ -110,8 +130,10 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         command.Parameters.AddWithValue("storagePath", document.StoragePath);
         command.Parameters.AddWithValue("status", document.Status);
         command.Parameters.AddWithValue("createdAt", document.CreatedAt);
+        command.Parameters.AddWithValue("tenantId", document.TenantId);
         command.Parameters.AddWithValue("ownerId", document.OwnerId);
         command.ExecuteNonQuery();
+        transaction.Commit();
 
         return document;
     }
@@ -129,12 +151,36 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             WHERE id = @documentId;
             """;
 
-        using var connection = new NpgsqlConnection(_connectionString);
-        connection.Open();
+        using var connection = OpenConnection(bypassTenantIsolation: true);
         using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("documentId", documentId);
         command.Parameters.AddWithValue("status", status.Trim());
         command.ExecuteNonQuery();
+    }
+
+    private NpgsqlConnection OpenConnection(bool bypassTenantIsolation)
+    {
+        var connection = new NpgsqlConnection(
+            bypassTenantIsolation ? _privilegedConnectionString : _tenantConnectionString);
+        connection.Open();
+        return connection;
+    }
+
+    private static void ApplyTenantContext(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string? tenantId,
+        bool bypassTenantIsolation)
+    {
+        if (bypassTenantIsolation)
+        {
+            return;
+        }
+
+        PostgresTenantSession.Apply(
+            connection,
+            transaction,
+            TenantIsolation.Normalize(tenantId ?? string.Empty));
     }
 
     private static void AddOwnerParameter(NpgsqlCommand command, string? ownerId)
@@ -153,6 +199,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             reader.GetString(4),
             reader.GetString(5),
             reader.GetFieldValue<DateTimeOffset>(6),
-            reader.GetString(7));
+            reader.GetString(7),
+            reader.GetString(8));
     }
 }
