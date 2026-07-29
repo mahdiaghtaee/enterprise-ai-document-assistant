@@ -1,5 +1,4 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -10,12 +9,14 @@ public static class AppRoles
 {
     public const string User = "User";
     public const string Admin = "Admin";
+    public const string PlatformAdmin = "PlatformAdmin";
 }
 
 public static class AuthorizationPolicies
 {
     public const string DocumentAccess = "DocumentAccess";
     public const string AdminOnly = "AdminOnly";
+    public const string PlatformAdminOnly = "PlatformAdminOnly";
 }
 
 public sealed class JwtOptions
@@ -42,33 +43,6 @@ public sealed class JwtOptions
         {
             throw new InvalidOperationException("Jwt:SigningKey must contain at least 32 UTF-8 bytes.");
         }
-    }
-}
-
-public sealed record DocumentAccessContext(string UserId, bool CanAccessAllDocuments)
-{
-    public string? OwnerFilter => CanAccessAllDocuments ? null : UserId;
-
-    public static DocumentAccessContext FromPrincipal(ClaimsPrincipal principal)
-    {
-        ArgumentNullException.ThrowIfNull(principal);
-
-        if (principal.Identity?.IsAuthenticated != true)
-        {
-            throw new InvalidOperationException("An authenticated principal is required.");
-        }
-
-        var userId = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-            ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            throw new InvalidOperationException("The authenticated token does not contain a subject claim.");
-        }
-
-        return new DocumentAccessContext(
-            userId.Trim(),
-            principal.IsInRole(AppRoles.Admin));
     }
 }
 
@@ -115,12 +89,17 @@ public static class ApplicationSecurityServiceCollectionExtensions
                 policy => policy
                     .RequireAuthenticatedUser()
                     .RequireClaim(JwtRegisteredClaimNames.Sub)
+                    .RequireClaim(TenantClaims.TenantId)
                     .RequireAssertion(context =>
                         context.User.IsInRole(AppRoles.User) ||
-                        context.User.IsInRole(AppRoles.Admin)));
+                        context.User.IsInRole(AppRoles.Admin) ||
+                        context.User.IsInRole(AppRoles.PlatformAdmin)));
             options.AddPolicy(
                 AuthorizationPolicies.AdminOnly,
-                policy => policy.RequireRole(AppRoles.Admin));
+                policy => policy.RequireRole(AppRoles.Admin, AppRoles.PlatformAdmin));
+            options.AddPolicy(
+                AuthorizationPolicies.PlatformAdminOnly,
+                policy => policy.RequireRole(AppRoles.PlatformAdmin));
         });
 
         return services;
