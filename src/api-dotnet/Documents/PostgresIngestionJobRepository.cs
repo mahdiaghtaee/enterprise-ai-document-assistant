@@ -1,15 +1,19 @@
+using EnterpriseDocumentAssistant.Api.Security;
 using Npgsql;
 
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
 {
-    private readonly string _connectionString;
+    private readonly string _tenantConnectionString;
+    private readonly string _privilegedConnectionString;
 
     public PostgresIngestionJobRepository(IConfiguration configuration)
     {
-        _connectionString = configuration.GetConnectionString("Postgres")
+        _tenantConnectionString = configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
+        _privilegedConnectionString = configuration.GetConnectionString("PostgresPrivileged")
+            ?? _tenantConnectionString;
     }
 
     public async Task<DocumentIngestionCreationResult> CreateDocumentWithPendingJobAsync(
@@ -26,11 +30,18 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
             request.SizeInBytes,
             NormalizeRequired(request.StoragePath, nameof(request.StoragePath)),
             "uploaded",
-            now);
+            now,
+            TenantIsolation.Normalize(request.TenantId),
+            DocumentOwnership.Normalize(request.OwnerId));
 
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_tenantConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await PostgresTenantSession.ApplyAsync(
+            connection,
+            transaction,
+            document.TenantId,
+            cancellationToken);
 
         try
         {
@@ -39,6 +50,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
                 connection,
                 transaction,
                 document.Id,
+                document.TenantId,
                 request.MaxAttempts,
                 now,
                 cancellationToken);
@@ -58,13 +70,13 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         try
         {
-            var job = await InsertPendingJobAsync(
+            var job = await InsertPendingJobForExistingDocumentAsync(
                 connection,
                 transaction,
                 documentId,
@@ -113,7 +125,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
             LIMIT 1;
             """;
 
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("documentId", documentId);
@@ -164,7 +176,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
                       job.updated_at;
             """;
 
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -300,7 +312,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
               AND status = 'Processing';
             """;
 
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("jobId", jobId);
@@ -340,7 +352,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
             """;
 
         var now = DateTimeOffset.UtcNow;
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("staleBefore", staleBefore);
@@ -354,7 +366,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
         Action<NpgsqlCommand> configure,
         CancellationToken cancellationToken)
     {
-        await using var connection = new NpgsqlConnection(_connectionString);
+        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         configure(command);
@@ -376,9 +388,9 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
     {
         const string sql = """
             INSERT INTO documents
-                (id, file_name, content_type, size_in_bytes, storage_path, status, created_at)
+                (id, file_name, content_type, size_in_bytes, storage_path, status, created_at, tenant_id, owner_id)
             VALUES
-                (@id, @fileName, @contentType, @sizeInBytes, @storagePath, @status, @createdAt);
+                (@id, @fileName, @contentType, @sizeInBytes, @storagePath, @status, @createdAt, @tenantId, @ownerId);
             """;
 
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -391,10 +403,58 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
         command.Parameters.AddWithValue("storagePath", document.StoragePath);
         command.Parameters.AddWithValue("status", document.Status);
         command.Parameters.AddWithValue("createdAt", document.CreatedAt);
+        command.Parameters.AddWithValue("tenantId", document.TenantId);
+        command.Parameters.AddWithValue("ownerId", document.OwnerId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<DocumentIngestionJob> InsertPendingJobAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid documentId,
+        string tenantId,
+        int maxAttempts,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            INSERT INTO document_ingestion_jobs
+                (document_id, tenant_id, status, attempt_count, max_attempts, available_at, created_at, updated_at)
+            VALUES
+                (@documentId, @tenantId, 'Pending', 0, @maxAttempts, @availableAt, @createdAt, @updatedAt)
+            RETURNING id,
+                      document_id,
+                      status,
+                      attempt_count,
+                      max_attempts,
+                      available_at,
+                      started_at,
+                      completed_at,
+                      failed_at,
+                      last_error_code,
+                      last_error_summary,
+                      created_at,
+                      updated_at;
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("documentId", documentId);
+        command.Parameters.AddWithValue("tenantId", TenantIsolation.Normalize(tenantId));
+        command.Parameters.AddWithValue("maxAttempts", maxAttempts);
+        command.Parameters.AddWithValue("availableAt", now);
+        command.Parameters.AddWithValue("createdAt", now);
+        command.Parameters.AddWithValue("updatedAt", now);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("The ingestion job insert did not return a row.");
+        }
+
+        return ReadJob(reader);
+    }
+
+    private static async Task<DocumentIngestionJob> InsertPendingJobForExistingDocumentAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid documentId,
@@ -404,9 +464,10 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
     {
         const string sql = """
             INSERT INTO document_ingestion_jobs
-                (document_id, status, attempt_count, max_attempts, available_at, created_at, updated_at)
-            VALUES
-                (@documentId, 'Pending', 0, @maxAttempts, @availableAt, @createdAt, @updatedAt)
+                (document_id, tenant_id, status, attempt_count, max_attempts, available_at, created_at, updated_at)
+            SELECT id, tenant_id, 'Pending', 0, @maxAttempts, @availableAt, @createdAt, @updatedAt
+            FROM documents
+            WHERE id = @documentId
             RETURNING id,
                       document_id,
                       status,
@@ -432,7 +493,7 @@ public sealed class PostgresIngestionJobRepository : IIngestionJobRepository
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
-            throw new InvalidOperationException("The ingestion job insert did not return a row.");
+            throw new InvalidOperationException("The document was not found for ingestion job creation.");
         }
 
         return ReadJob(reader);
