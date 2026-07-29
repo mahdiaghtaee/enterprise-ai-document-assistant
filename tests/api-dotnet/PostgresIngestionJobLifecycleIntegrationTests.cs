@@ -146,8 +146,8 @@ public sealed class PostgresIngestionJobLifecycleIntegrationTests
                 32,
                 $"/tmp/{prefix}-{marker}.txt",
                 maxAttempts,
-                "tenant-a",
-                "user-a"),
+                OwnerId: "user-a",
+                TenantId: "tenant-a"),
             CancellationToken.None);
     }
 
