@@ -18,6 +18,7 @@ Optional environment variables:
     PROCESSING_TIMEOUT_SECONDS=60
     JWT_TOKEN=<externally issued token>
     DEMO_USER_ID=demo-user
+    DEMO_TENANT_ID=demo-tenant
     DEMO_ROLE=User
 """
 
@@ -44,6 +45,7 @@ PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "60"))
 JWT_TOKEN = os.getenv("JWT_TOKEN") or create_token(
     os.getenv("DEMO_USER_ID", "demo-user"),
     os.getenv("DEMO_ROLE", "User"),
+    os.getenv("DEMO_TENANT_ID", "demo-tenant"),
     PROCESSING_TIMEOUT_SECONDS + 300,
 )
 
