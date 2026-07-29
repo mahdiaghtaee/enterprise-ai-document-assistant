@@ -98,6 +98,7 @@ public sealed class DocumentIngestionProcessor : IDocumentIngestionProcessor
                 vector.ChunkIndex,
                 vector.Text,
                 vector.Values,
+                document.TenantId,
                 document.OwnerId)).ToArray(),
             cancellationToken);
 
