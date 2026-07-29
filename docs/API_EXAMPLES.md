@@ -1,17 +1,17 @@
 # API Examples
 
-The API is published by Docker Compose at `http://localhost:5000`. The health endpoint is public; every document endpoint requires a JWT bearer token.
+The API is published by Docker Compose at `http://localhost:5000`. The health endpoint is public; every document endpoint requires a JWT containing `sub`, `tenant_id`, and a supported role.
 
 ## Create a local token
 
 ```bash
-TOKEN=$(python scripts/create_dev_token.py --user demo-user --role User)
+TOKEN=$(python scripts/create_dev_token.py --user demo-user --tenant demo-tenant --role User)
 ```
 
 Windows PowerShell:
 
 ```powershell
-$TOKEN = python scripts/create_dev_token.py --user demo-user --role User
+$TOKEN = python scripts/create_dev_token.py --user demo-user --tenant demo-tenant --role User
 ```
 
 The helper and default signing key are for local development only.
@@ -34,14 +34,18 @@ Expected shape:
 ```json
 {
   "userId": "demo-user",
+  "tenantId": "demo-tenant",
   "roles": ["User"],
-  "canAccessAllDocuments": false
+  "canAccessAllTenants": false,
+  "canAccessAllDocumentsInTenant": false
 }
 ```
 
+A tenant `Admin` returns `canAccessAllDocumentsInTenant: true` and `canAccessAllTenants: false`. Only `PlatformAdmin` returns cross-tenant access.
+
 ## Create document metadata
 
-This registers metadata owned by the authenticated subject without enqueueing a physical file.
+This registers metadata under the authenticated owner and tenant without enqueueing a physical file.
 
 ```bash
 curl -X POST http://localhost:5000/api/documents \
@@ -53,7 +57,7 @@ curl -X POST http://localhost:5000/api/documents \
   }'
 ```
 
-The owner is never accepted from the JSON body. It is derived from the JWT `sub` claim.
+Neither owner nor tenant is accepted from the JSON body. Both are derived from JWT claims.
 
 ## Upload and enqueue
 
@@ -63,7 +67,7 @@ curl -i -X POST http://localhost:5000/api/documents/upload \
   -F "file=@samples/sample-policy.txt;type=text/plain"
 ```
 
-A valid request returns `202 Accepted` after the file is stored and document metadata plus the initial `Pending` job are committed atomically.
+A valid request returns `202 Accepted` after the file is stored and document metadata plus the initial `Pending` job are committed atomically with owner and tenant identity.
 
 ```json
 {
@@ -86,7 +90,7 @@ curl http://localhost:5000/api/documents/generated-document-id/processing-status
   -H "Authorization: Bearer $TOKEN"
 ```
 
-An ordinary user receives `404` for another subject's document identifier. An `Admin` token can inspect status across owners.
+A `User` receives `404` for a document outside its owner or tenant scope. A tenant `Admin` can inspect all owners in the same tenant. A `PlatformAdmin` can inspect across tenants.
 
 ## List visible documents
 
@@ -95,7 +99,11 @@ curl http://localhost:5000/api/documents \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-A `User` sees only documents whose `ownerId` equals the token subject. An `Admin` sees all documents.
+Visibility:
+
+- `User`: own documents inside `demo-tenant`;
+- `Admin`: all owners inside `demo-tenant`;
+- `PlatformAdmin`: all tenants through the privileged path.
 
 ```json
 [
@@ -106,8 +114,9 @@ A `User` sees only documents whose `ownerId` equals the token subject. An `Admin
     "sizeInBytes": 1200,
     "storagePath": "/app/storage/documents/stored-name.txt",
     "status": "indexed",
-    "createdAt": "2026-07-28T00:00:00+00:00",
-    "ownerId": "demo-user"
+    "createdAt": "2026-07-29T00:00:00+00:00",
+    "ownerId": "demo-user",
+    "tenantId": "demo-tenant"
   }
 ]
 ```
@@ -124,7 +133,7 @@ curl -X POST http://localhost:5000/api/documents/search \
   }'
 ```
 
-Owner filtering is applied before PostgreSQL vector ranking. No chunks belonging to another ordinary user are returned.
+Tenant scope is enforced by PostgreSQL Row-Level Security before vector ranking. The application additionally applies the owner filter for `User` tokens.
 
 ```json
 {
@@ -154,7 +163,7 @@ curl -X POST http://localhost:5000/api/documents/ask \
   }'
 ```
 
-The answer and every returned source are built only from chunks visible to the authenticated subject.
+The answer and every source are built only from chunks visible to the authenticated owner and tenant scope.
 
 ## Authorization failure examples
 
@@ -166,9 +175,26 @@ curl -i http://localhost:5000/api/documents
 
 Expected status: `401 Unauthorized`.
 
-A signed token without `sub` is authenticated but fails the document policy with `403 Forbidden`.
+A signed token missing `sub`, `tenant_id`, or a supported role fails with `403 Forbidden`.
 
-A valid ordinary-user token that references another owner's document receives `404 Not Found` from the status endpoint and no foreign matches from Search or Ask.
+A valid token outside the document's owner or tenant scope receives `404 Not Found` from status lookup and no foreign matches from Search or Ask.
+
+## Cross-tenant local verification
+
+```bash
+TENANT_A_USER=$(python scripts/create_dev_token.py --user user-a --tenant tenant-a --role User)
+TENANT_A_ADMIN=$(python scripts/create_dev_token.py --user admin-a --tenant tenant-a --role Admin)
+TENANT_B_ADMIN=$(python scripts/create_dev_token.py --user admin-b --tenant tenant-b --role Admin)
+PLATFORM_ADMIN=$(python scripts/create_dev_token.py --user platform-admin --tenant platform --role PlatformAdmin)
+```
+
+After uploading with `TENANT_A_USER`:
+
+- search with `TENANT_A_USER`: document returned;
+- search with another ordinary tenant-a user: document hidden by owner scope;
+- search with `TENANT_A_ADMIN`: document returned;
+- search with `TENANT_B_ADMIN`: document hidden by tenant RLS;
+- search with `PLATFORM_ADMIN`: document returned.
 
 ## End-to-end demo
 
@@ -176,4 +202,4 @@ A valid ordinary-user token that references another owner's document receives `4
 python scripts/demo_flow.py
 ```
 
-The script creates a local user token when `JWT_TOKEN` is not supplied, uploads a sample, polls background processing, searches, and asks a grounded question.
+The script creates a tenant-scoped local user token when `JWT_TOKEN` is absent, uploads a sample, polls processing, searches, and asks a grounded question.
