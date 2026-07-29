@@ -18,8 +18,8 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
     }
 
     public IReadOnlyCollection<DocumentRecord> GetAll(
-        string? tenantId = null,
         string? ownerId = null,
+        string? tenantId = null,
         bool bypassTenantIsolation = false)
     {
         const string sql = """
@@ -57,8 +57,8 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
 
     public DocumentRecord? GetById(
         Guid documentId,
-        string? tenantId = null,
         string? ownerId = null,
+        string? tenantId = null,
         bool bypassTenantIsolation = false)
     {
         const string sql = """
@@ -96,8 +96,8 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
         string? contentType,
         long sizeInBytes,
         string storagePath,
-        string tenantId = TenantIsolation.LegacyTenantId,
-        string ownerId = DocumentOwnership.LegacyOwnerId)
+        string ownerId = DocumentOwnership.LegacyOwnerId,
+        string tenantId = TenantIsolation.LegacyTenantId)
     {
         var document = new DocumentRecord(
             Guid.NewGuid(),
@@ -107,8 +107,8 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             storagePath,
             "uploaded",
             DateTimeOffset.UtcNow,
-            TenantIsolation.Normalize(tenantId),
-            DocumentOwnership.Normalize(ownerId));
+            DocumentOwnership.Normalize(ownerId),
+            TenantIsolation.Normalize(tenantId));
 
         const string sql = """
             INSERT INTO documents
@@ -199,7 +199,7 @@ public sealed class PostgresDocumentRepository : IDocumentRepository
             reader.GetString(4),
             reader.GetString(5),
             reader.GetFieldValue<DateTimeOffset>(6),
-            reader.GetString(7),
-            reader.GetString(8));
+            reader.GetString(8),
+            reader.GetString(7));
     }
 }
