@@ -1,3 +1,5 @@
+using EnterpriseDocumentAssistant.Api.Security;
+
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
 public interface ISemanticIndexStore
@@ -13,6 +15,7 @@ public sealed record SemanticIndexRecord(
     int ChunkIndex,
     string Text,
     IReadOnlyList<float> Embedding,
+    string TenantId = TenantIsolation.LegacyTenantId,
     string OwnerId = DocumentOwnership.LegacyOwnerId)
 {
     public int Dimensions => Embedding.Count;
@@ -44,6 +47,7 @@ public sealed record SemanticIndexRecord(
             throw new ArgumentException("Embedding values are required.", nameof(Embedding));
         }
 
+        TenantIsolation.Normalize(TenantId);
         DocumentOwnership.Normalize(OwnerId);
     }
 }
@@ -51,7 +55,9 @@ public sealed record SemanticIndexRecord(
 public sealed record SemanticSearchRequest(
     IReadOnlyList<float> QueryEmbedding,
     int TopK = 5,
-    string? OwnerId = null)
+    string? TenantId = null,
+    string? OwnerId = null,
+    bool BypassTenantIsolation = false)
 {
     public void Validate()
     {
@@ -63,6 +69,11 @@ public sealed record SemanticSearchRequest(
         if (TopK <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(TopK), "TopK must be greater than zero.");
+        }
+
+        if (!BypassTenantIsolation)
+        {
+            TenantIsolation.Normalize(TenantId ?? string.Empty);
         }
 
         if (OwnerId is not null)
@@ -85,21 +96,28 @@ public sealed class InMemorySemanticIndexStore : ISemanticIndexStore
         foreach (var record in records)
         {
             record.Validate();
-            _records.RemoveAll(existing => existing.DocumentId == record.DocumentId && existing.ChunkIndex == record.ChunkIndex);
+            _records.RemoveAll(existing =>
+                existing.DocumentId == record.DocumentId &&
+                existing.ChunkIndex == record.ChunkIndex);
             _records.Add(record);
         }
 
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<SemanticSearchResult>> SearchAsync(SemanticSearchRequest request, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<SemanticSearchResult>> SearchAsync(
+        SemanticSearchRequest request,
+        CancellationToken cancellationToken)
     {
         request.Validate();
 
         IReadOnlyList<SemanticSearchResult> results = _records
             .Where(record => record.Dimensions == request.QueryEmbedding.Count)
+            .Where(record => request.BypassTenantIsolation || record.TenantId == request.TenantId)
             .Where(record => request.OwnerId is null || record.OwnerId == request.OwnerId)
-            .Select(record => new SemanticSearchResult(record, CalculateScore(request.QueryEmbedding, record.Embedding)))
+            .Select(record => new SemanticSearchResult(
+                record,
+                CalculateScore(request.QueryEmbedding, record.Embedding)))
             .OrderByDescending(result => result.Score)
             .ThenBy(result => result.Record.FileName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(result => result.Record.ChunkIndex)
