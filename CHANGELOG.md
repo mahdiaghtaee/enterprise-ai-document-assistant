@@ -24,6 +24,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Correlated application audit for document listing, metadata creation, upload, status, Search, Ask, and audit access.
 - Negative tests for correlation validation, tenant audit isolation, PlatformAdmin visibility, append-only permissions, and sensitive-query exclusion.
 - A dedicated audit and observability integration workflow.
+- A versioned tenant-safe retrieval corpus with exact, ambiguous, vocabulary-mismatch, and empty-query categories.
+- A provider-free .NET retrieval evaluation command using the existing deterministic embedding and semantic-index implementations.
+- Machine-readable Precision@K, Recall@K, MRR, empty-query accuracy, mean latency, and p95 latency reporting.
+- A committed observed baseline with explicit quality and latency regression thresholds.
+- Dedicated retrieval metric, input-validation, baseline-comparison, and empty-query tests.
+- A read-only retrieval-quality workflow that retains the JSON report as a fourteen-day artifact.
 
 ### Changed
 
@@ -32,7 +38,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Search and Ask audit metadata records only bounded operational values such as `topK`, result/source count, and duration; query and question text are excluded.
 - Docker Compose accepts an optional `OTEL_EXPORTER_OTLP_ENDPOINT` while retaining collector-free defaults.
 - Health behavior is separated into backward-compatible process health, liveness, and dependency readiness.
-- Documentation now treats tenant isolation and the audit/observability foundation as delivered while retaining explicit production limitations.
+- Retrieval changes can now be compared against a reproducible baseline before embedding, ranking, chunking, or provider implementations change.
+- Public Search and Ask response contracts remain unchanged by the evaluation tooling.
+- Documentation now treats tenant isolation, audit/observability, and the retrieval-evaluation foundation as delivered while retaining explicit production limitations.
 
 ### Migration notes
 
@@ -41,6 +49,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Application roles require `SELECT` and `INSERT`, but not `UPDATE` or `DELETE`, on `audit_events`.
 - Deployments may leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty or configure a trusted OTLP/HTTP collector endpoint.
 - Existing documents remain assigned to `legacy-system` and `legacy-tenant` until mapped to production identities.
+- Retrieval evaluation adds no database migration and runs independently of PostgreSQL by using the configured local deterministic contracts.
 
 ### Known limitations
 
@@ -49,6 +58,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A production telemetry backend, dashboards, alerts, SLOs, audit retention, legal hold, and tamper-evident archival are not bundled.
 - Token revocation, managed key rotation, encrypted storage, malware scanning, and centralized secret management remain absent.
 - The repository signing key and token helper are for local development only.
+- The first retrieval corpus is small and synthetic; it detects deterministic regressions but does not establish production search accuracy.
+- The current vocabulary-mismatch case is intentionally a miss at `K = 3`, and the ambiguous case retrieves only one of two relevant chunks.
 - The project remains unsuitable for confidential or regulated documents without additional operational and compliance controls.
 
 ## 0.3.0 - 2026-07-27
