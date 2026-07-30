@@ -83,9 +83,9 @@ Tracked by completed issue #33.
 
 Delivered:
 
-- validated `X-Correlation-ID` generation, response echo, log scope, and service propagation;
+- validated `X-Correlation-ID` generation, response echo, log-safe diagnostic linkage, and service propagation;
 - W3C trace-context propagation through OpenTelemetry HTTP instrumentation;
-- structured JSON console logging with trace, span, correlation, tenant, document, and job context;
+- structured JSON console logging with trace, span, correlation digest, tenant, document, and job context;
 - OpenTelemetry tracing for ASP.NET Core, HttpClient, FastAPI, Search, Ask, upload, and background ingestion;
 - metrics for authorization denials, uploads, retrieval, processing duration, retries, failures, and recovery;
 - optional OTLP/HTTP export without a mandatory local collector;
@@ -106,21 +106,45 @@ Remaining operational work:
 - load-based trace sampling and metric-cardinality review;
 - backup and restore exercises for audit and document data.
 
-## Milestone 5 — Retrieval Evaluation and Provider Integrations
+## Milestone 5 — Retrieval Evaluation and Provider Integrations (Evaluation Foundation Completed)
 
 Goal: measure retrieval quality before introducing real embedding and language-model providers, without coupling public contracts to a vendor or reducing testability.
 
-Planned work:
+Tracked by issue #3 for the completed evaluation foundation.
 
-- a representative tenant-safe retrieval evaluation dataset;
-- repeatable recall, ranking, latency, and grounded-source metrics;
-- regression thresholds in CI;
+Delivered:
+
+- a versioned tenant-safe synthetic corpus and explicit document/chunk relevance judgments;
+- exact, ambiguous, vocabulary-mismatch, and empty-query categories;
+- a repeatable .NET evaluation command that uses the existing deterministic embedding and semantic-index abstractions;
+- machine-readable per-query and aggregate reports;
+- Precision@K, Recall@K, mean reciprocal rank, empty-query accuracy, mean latency, and p95 latency metrics;
+- an observed baseline and reviewed regression thresholds;
+- non-zero process exit codes for quality or latency regressions;
+- a dedicated read-only CI workflow with unit tests, report-contract checks, and retained artifacts;
+- documentation of metric definitions, baseline weaknesses, corpus versioning, and threshold-update rules;
+- unchanged public Search and Ask response contracts.
+
+Current baseline boundary:
+
+- exact-match queries rank their relevant chunk first;
+- the ambiguous query retrieves only one of two relevant chunks in the first three results;
+- the vocabulary-mismatch query currently misses in the first three results;
+- the corpus is intentionally small and synthetic and does not support production-accuracy claims.
+
+Remaining provider and evaluation work:
+
+- a larger representative and reviewed corpus;
+- multilingual, duplicate, long-document, adversarial, and category-specific evaluation;
+- confidence intervals and category-level regression thresholds;
+- grounded-answer citation correctness and answer-support metrics;
 - provider interfaces and configuration;
 - one local provider and one external provider;
 - deterministic fake providers for tests;
 - timeout, retry, cancellation, and error mapping;
 - cost and token-usage metadata where applicable;
-- provider data-handling and tenant-isolation review.
+- provider data-handling and tenant-isolation review;
+- PostgreSQL, local-provider, and external-provider comparison reports.
 
 Python-specific processing should move to FastAPI only when a concrete library or deployment requirement justifies the additional service complexity.
 
