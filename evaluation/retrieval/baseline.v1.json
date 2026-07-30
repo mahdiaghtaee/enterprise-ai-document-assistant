@@ -1,0 +1,17 @@
+{
+  "datasetVersion": "1.0.0",
+  "topK": 3,
+  "observed": {
+    "precisionAtK": 0.277778,
+    "recallAtK": 0.75,
+    "meanReciprocalRank": 0.833333,
+    "emptyQueryAccuracy": 1.0
+  },
+  "thresholds": {
+    "minimumPrecisionAtK": 0.27,
+    "minimumRecallAtK": 0.74,
+    "minimumMeanReciprocalRank": 0.82,
+    "minimumEmptyQueryAccuracy": 1.0,
+    "maximumMeanLatencyMs": 250.0
+  }
+}
