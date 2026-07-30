@@ -1,0 +1,79 @@
+name: Retrieval quality evaluation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  retrieval-evaluation:
+    name: Deterministic retrieval regression checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore evaluation tests
+        run: dotnet restore tests/retrieval-evaluation/EnterpriseDocumentAssistant.RetrievalEvaluation.Tests.csproj
+
+      - name: Run evaluation unit tests
+        run: >-
+          dotnet test tests/retrieval-evaluation/EnterpriseDocumentAssistant.RetrievalEvaluation.Tests.csproj
+          --configuration Release
+          --no-restore
+
+      - name: Run versioned retrieval evaluation
+        run: |
+          mkdir -p artifacts
+          dotnet run \
+            --project tools/retrieval-evaluation/EnterpriseDocumentAssistant.RetrievalEvaluation.csproj \
+            --configuration Release \
+            --no-build \
+            --no-restore \
+            -- \
+            --dataset evaluation/retrieval/corpus.v1.json \
+            --baseline evaluation/retrieval/baseline.v1.json \
+            --output artifacts/retrieval-evaluation.json
+
+      - name: Verify machine-readable report contract
+        run: |
+          python3 - <<'PY'
+          import json
+
+          with open('artifacts/retrieval-evaluation.json', encoding='utf-8') as report_file:
+              report = json.load(report_file)
+
+          assert report['datasetVersion'] == '1.0.0', report
+          assert report['topK'] == 3, report
+          assert report['queryCount'] == 7, report
+          assert report['evaluatedQueryCount'] == 6, report
+          assert report['emptyQueryCount'] == 1, report
+          assert report['baseline']['passed'] is True, report
+          assert {
+              query['category'] for query in report['queries']
+          } >= {'exact', 'ambiguous', 'vocabulary_mismatch', 'empty'}, report
+          assert report['metrics']['precisionAtK'] >= 0.27, report
+          assert report['metrics']['recallAtK'] >= 0.74, report
+          assert report['metrics']['meanReciprocalRank'] >= 0.82, report
+          PY
+
+      - name: Upload retrieval evaluation report
+        uses: actions/upload-artifact@v7
+        with:
+          name: retrieval-evaluation-report
+          path: artifacts/retrieval-evaluation.json
+          if-no-files-found: error
+          retention-days: 14
