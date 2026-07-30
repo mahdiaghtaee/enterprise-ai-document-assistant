@@ -1,0 +1,170 @@
+{
+  "version": "1.0.0",
+  "topK": 3,
+  "tenantId": "retrieval-evaluation-tenant",
+  "ownerId": "retrieval-evaluation-user",
+  "documents": [
+    {
+      "documentId": "11111111-1111-1111-1111-111111111111",
+      "fileName": "contract-policy.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "vendor contract approval process"
+        },
+        {
+          "chunkIndex": 1,
+          "text": "legal review and procurement decision before contract signature"
+        }
+      ]
+    },
+    {
+      "documentId": "22222222-2222-2222-2222-222222222222",
+      "fileName": "password-guide.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "password reset account recovery"
+        },
+        {
+          "chunkIndex": 1,
+          "text": "identity verification and multi factor authentication recovery"
+        }
+      ]
+    },
+    {
+      "documentId": "33333333-3333-3333-3333-333333333333",
+      "fileName": "backup-runbook.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "database backup restore procedure"
+        },
+        {
+          "chunkIndex": 1,
+          "text": "restore latest valid snapshot and verify application integrity"
+        }
+      ]
+    },
+    {
+      "documentId": "44444444-4444-4444-4444-444444444444",
+      "fileName": "expense-policy.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "manager approval policy for expense reimbursement"
+        },
+        {
+          "chunkIndex": 1,
+          "text": "receipt submission and finance approval for travel expenses"
+        }
+      ]
+    },
+    {
+      "documentId": "55555555-5555-5555-5555-555555555555",
+      "fileName": "incident-runbook.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "production outage response steps"
+        },
+        {
+          "chunkIndex": 1,
+          "text": "triage containment stakeholder communication and service restoration"
+        }
+      ]
+    },
+    {
+      "documentId": "66666666-6666-6666-6666-666666666666",
+      "fileName": "remote-work.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "manager approval policy for remote work requests"
+        },
+        {
+          "chunkIndex": 1,
+          "text": "secure network access and approved devices for remote employees"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact-contract-approval",
+      "category": "exact",
+      "query": "vendor contract approval process",
+      "relevant": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "exact-password-recovery",
+      "category": "exact",
+      "query": "password reset account recovery",
+      "relevant": [
+        {
+          "documentId": "22222222-2222-2222-2222-222222222222",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "exact-backup-restore",
+      "category": "exact",
+      "query": "database backup restore procedure",
+      "relevant": [
+        {
+          "documentId": "33333333-3333-3333-3333-333333333333",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-manager-approval",
+      "category": "ambiguous",
+      "query": "manager approval policy",
+      "relevant": [
+        {
+          "documentId": "44444444-4444-4444-4444-444444444444",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "66666666-6666-6666-6666-666666666666",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "vocabulary-mismatch-archive-recovery",
+      "category": "vocabulary_mismatch",
+      "query": "restore archived records",
+      "relevant": [
+        {
+          "documentId": "33333333-3333-3333-3333-333333333333",
+          "chunkIndex": 1
+        }
+      ]
+    },
+    {
+      "id": "exact-incident-response",
+      "category": "exact",
+      "query": "production outage response steps",
+      "relevant": [
+        {
+          "documentId": "55555555-5555-5555-5555-555555555555",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "empty-query",
+      "category": "empty",
+      "query": "",
+      "relevant": []
+    }
+  ]
+}
