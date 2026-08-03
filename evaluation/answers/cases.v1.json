@@ -1,0 +1,175 @@
+{
+  "version": "1.0.0",
+  "options": {
+    "minimumSourceScore": 0.2,
+    "maxSources": 5,
+    "maxContextCharacters": 12000,
+    "rejectNearTieEvidence": true,
+    "conflictScoreDelta": 0.001
+  },
+  "cases": [
+    {
+      "id": "deterministic-grounded",
+      "category": "grounded_answer",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "deterministic",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "contract-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.95,
+          "text": "The Finance Director approves vendor contracts above the department threshold."
+        }
+      ],
+      "expected": {
+        "outcome": "answered",
+        "citedSourceNumbers": [1]
+      }
+    },
+    {
+      "id": "provider-grounded-citation",
+      "category": "grounded_answer",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "scripted_answer",
+      "scriptedAnswer": "The Finance Director approves vendor contracts [S1].",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "contract-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.95,
+          "text": "The Finance Director approves vendor contracts above the department threshold."
+        }
+      ],
+      "expected": {
+        "outcome": "answered",
+        "citedSourceNumbers": [1]
+      }
+    },
+    {
+      "id": "no-evidence",
+      "category": "insufficient_evidence",
+      "question": "What is the data retention period?",
+      "generatorMode": "scripted_answer",
+      "scriptedAnswer": "This must never be used because there are no sources [S1].",
+      "sources": [],
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "reasonCode": "no_evidence",
+        "providerCallExpected": false
+      }
+    },
+    {
+      "id": "low-confidence",
+      "category": "insufficient_evidence",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "scripted_answer",
+      "scriptedAnswer": "This must never be used because confidence is too low [S1].",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "contract-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.1,
+          "text": "The Finance Director approves vendor contracts."
+        }
+      ],
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "reasonCode": "low_confidence",
+        "providerCallExpected": false
+      }
+    },
+    {
+      "id": "conflicting-near-tie",
+      "category": "insufficient_evidence",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "scripted_answer",
+      "scriptedAnswer": "This must never be used because evidence conflicts [S1].",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "finance-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.91,
+          "text": "The Finance Director approves vendor contracts."
+        },
+        {
+          "documentId": "22222222-2222-2222-2222-222222222222",
+          "fileName": "legal-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.9095,
+          "text": "The Legal Director approves vendor contracts."
+        }
+      ],
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "reasonCode": "conflicting_evidence",
+        "providerCallExpected": false
+      }
+    },
+    {
+      "id": "provider-declines",
+      "category": "insufficient_evidence",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "scripted_insufficient",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "contract-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.95,
+          "text": "The approval language is incomplete in this excerpt."
+        }
+      ],
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "reasonCode": "provider_declined",
+        "providerCallExpected": true
+      }
+    },
+    {
+      "id": "provider-answer-without-citation",
+      "category": "grounding_rejection",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "scripted_answer",
+      "scriptedAnswer": "The Finance Director approves vendor contracts.",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "contract-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.95,
+          "text": "The Finance Director approves vendor contracts."
+        }
+      ],
+      "expected": {
+        "outcome": "provider_failure",
+        "failureCode": "answer_provider_ungrounded_response",
+        "providerCallExpected": true
+      }
+    },
+    {
+      "id": "provider-answer-invalid-citation",
+      "category": "grounding_rejection",
+      "question": "Who approves vendor contracts?",
+      "generatorMode": "scripted_answer",
+      "scriptedAnswer": "The Finance Director approves vendor contracts [S2].",
+      "sources": [
+        {
+          "documentId": "11111111-1111-1111-1111-111111111111",
+          "fileName": "contract-policy.txt",
+          "chunkIndex": 0,
+          "score": 0.95,
+          "text": "The Finance Director approves vendor contracts."
+        }
+      ],
+      "expected": {
+        "outcome": "provider_failure",
+        "failureCode": "answer_provider_ungrounded_response",
+        "providerCallExpected": true
+      }
+    }
+  ]
+}
