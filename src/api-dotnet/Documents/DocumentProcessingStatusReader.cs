@@ -76,7 +76,7 @@ public sealed class PostgresDocumentProcessingStatusReader : IDocumentProcessing
     private static DocumentIngestionJob ReadJob(NpgsqlDataReader reader) => new(
         reader.GetInt64(0),
         reader.GetGuid(1),
-        DocumentIngestionJobStatusParser.Parse(reader.GetString(2)),
+        Enum.Parse<DocumentIngestionStatus>(reader.GetString(2), ignoreCase: false),
         reader.GetInt32(3),
         reader.GetInt32(4),
         reader.GetFieldValue<DateTimeOffset>(5),
