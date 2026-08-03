@@ -44,7 +44,32 @@ public static class ApplicationTelemetry
     public static readonly Histogram<double> AskDuration = Meter.CreateHistogram<double>(
         "document_assistant.ask.duration",
         unit: "ms",
-        description: "Grounded-answer retrieval duration in milliseconds.");
+        description: "Grounded-answer retrieval and generation duration in milliseconds.");
+
+    public static readonly Counter<long> AnswerGenerationResults = Meter.CreateCounter<long>(
+        "document_assistant.answer_generation.results",
+        unit: "{result}",
+        description: "Number of answered or insufficient-evidence generation results.");
+
+    public static readonly Counter<long> AnswerGenerationFailures = Meter.CreateCounter<long>(
+        "document_assistant.answer_generation.failures",
+        unit: "{failure}",
+        description: "Number of controlled answer-provider failures.");
+
+    public static readonly Histogram<double> AnswerGenerationDuration = Meter.CreateHistogram<double>(
+        "document_assistant.answer_generation.duration",
+        unit: "ms",
+        description: "Answer generation duration after retrieval in milliseconds.");
+
+    public static readonly Histogram<long> AnswerInputTokens = Meter.CreateHistogram<long>(
+        "document_assistant.answer_generation.input_tokens",
+        unit: "{token}",
+        description: "Provider-reported answer-generation input tokens when available.");
+
+    public static readonly Histogram<long> AnswerOutputTokens = Meter.CreateHistogram<long>(
+        "document_assistant.answer_generation.output_tokens",
+        unit: "{token}",
+        description: "Provider-reported answer-generation output tokens when available.");
 
     public static readonly Counter<long> IngestionCompleted = Meter.CreateCounter<long>(
         "document_assistant.ingestion.completed",
