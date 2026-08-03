@@ -4,13 +4,14 @@ This roadmap separates completed capabilities from planned work. A milestone is 
 
 ## Completed Foundation
 
-- Docker Compose environment for the API, Web UI, FastAPI service, PostgreSQL, and Redis
+- split Docker Compose environment for the public API, privileged worker, Web UI, FastAPI service, PostgreSQL, and Redis
 - ASP.NET Core and FastAPI health endpoints
-- local document storage
+- local shared document storage
 - PostgreSQL-backed document metadata
 - plain-text extraction and fixed-size chunking
 - deterministic local embeddings
 - semantic search and grounded Ask endpoints
+- managed tenant lifecycle and durable membership enforcement
 - sample documents and end-to-end demo script
 - .NET, Python, PostgreSQL, container, CodeQL, and Dependency Review checks
 
@@ -42,7 +43,7 @@ Delivered:
 - `202 Accepted` upload responses and authenticated processing status;
 - PostgreSQL lifecycle and runtime persistence tests.
 
-## Milestone 3 — Identity, Ownership, and Tenant Isolation (Completed)
+## Milestone 3 — Identity, Ownership, and Database Tenant Isolation (Completed)
 
 Goal: prevent unauthorized access across users and organizations.
 
@@ -58,7 +59,7 @@ Delivered:
 - owner-aware document repositories and retrieval;
 - tenant identity persisted on documents, semantic chunks, and ingestion jobs;
 - separate non-superuser runtime and privileged PostgreSQL roles;
-- forced PostgreSQL Row-Level Security for all tenant data tables;
+- forced PostgreSQL Row-Level Security for tenant data tables;
 - transaction-local tenant session context for runtime operations;
 - composite tenant/document foreign keys;
 - background-processing preservation of tenant and owner identity;
@@ -66,14 +67,13 @@ Delivered:
 - negative API and database tests for cross-user and cross-tenant access;
 - migration and security documentation.
 
-Remaining identity and tenant lifecycle work:
+Remaining identity-provider work:
 
-- tenant provisioning and deactivation;
-- memberships, invitations, domain verification, and role lifecycle;
-- external identity-provider synchronization;
-- managed key rotation and token revocation;
-- per-tenant quotas, retention, export, and deletion workflows;
-- separation of the privileged worker/platform path into an independent trust boundary.
+- external identity-provider and directory synchronization;
+- domain verification and organization ownership proof;
+- managed signing-key rotation and token/session revocation;
+- SCIM or equivalent enterprise provisioning integration;
+- device, conditional-access, and break-glass controls.
 
 ## Milestone 4 — Auditability and Observability (Completed Foundation)
 
@@ -93,8 +93,8 @@ Delivered:
 - append-only PostgreSQL `audit_events` storage;
 - forced tenant RLS and Admin/PlatformAdmin audit-read policies;
 - atomic database-trigger audit for document and ingestion-job creation/status changes;
-- correlated application audit for listing, upload, status, Search, Ask, and audit access;
-- explicit exclusion of document text, queries, questions, bearer tokens, and file content from audit metadata;
+- correlated application audit for listing, upload, status, Search, Ask, lifecycle changes, and audit access;
+- explicit exclusion of document text, queries, questions, invitation tokens, bearer tokens, and file content from audit metadata;
 - .NET, Python, PostgreSQL, and Compose verification of correlation, audit isolation, append-only privileges, and readiness.
 
 Remaining operational work:
@@ -160,18 +160,49 @@ Remaining provider and evaluation work:
 
 Python-specific processing should move to FastAPI only when a concrete library or deployment requirement justifies the additional service complexity.
 
-## Milestone 6 — Tenant Lifecycle and Trust-boundary Separation
+## Milestone 6 — Managed Tenant Lifecycle and Worker Trust Boundary (Completed Foundation)
 
-Goal: move from token-claim demonstrations to managed organization lifecycle and independently deployable privileged processing.
+Goal: move from token-claim demonstrations to managed organization lifecycle and independently deployed privileged processing.
 
-Planned work:
+Tracked by issue #81.
 
-- tenant provisioning and deactivation;
-- membership, invitation, role-change, and removal workflows;
-- external identity-provider synchronization;
-- independent deployment identity for the privileged ingestion worker;
-- per-tenant quotas, retention, export, and deletion workflows;
-- key rotation and token-revocation integration.
+Delivered:
+
+- durable `tenants`, `tenant_memberships`, and `tenant_invitations` storage;
+- PlatformAdmin provisioning, deactivation, and reactivation APIs;
+- atomic tenant and initial Admin creation;
+- active tenant and active durable membership checks on protected requests;
+- durable Admin-role enforcement that rejects stale elevated JWT claims;
+- member listing, role changes, and removal;
+- transactional protection against removing or downgrading the final active Admin;
+- one-time, expiration-aware, revocable invitations bound to the authenticated subject;
+- storage of SHA-256 invitation-token digests rather than plaintext;
+- forced RLS and direct cross-tenant database rejection tests for lifecycle tables;
+- bounded lifecycle audit records that exclude invitation secrets;
+- separate `document_app`, `document_platform`, and `document_privileged` database roles;
+- `ApplicationMode=Api`, `Worker`, and compatibility `Combined` modes;
+- an independent Compose worker with no published host port and no privileged credential in the public API container;
+- shared named-volume document storage between enqueue and processing services;
+- API, authorization, PostgreSQL, Compose, restart, and negative lifecycle tests;
+- a self-bootstrapping local demo and migration/security documentation.
+
+Current lifecycle boundary:
+
+- local invitations target a stable subject identifier rather than an email address;
+- invitation delivery and recipient proofing are external responsibilities;
+- removed membership blocks this application immediately but does not revoke an identity-provider session;
+- the platform and worker roles are separated at the database credential and process level, but the reference stack remains a single Compose deployment.
+
+Remaining tenant-management work:
+
+- external IdP/SCIM synchronization;
+- trusted email or enterprise invitation delivery;
+- domain ownership verification;
+- per-tenant quotas and usage governance;
+- retention, export, deletion, and legal-hold workflows;
+- organization transfer and recovery procedures;
+- centralized secrets, managed service identities, and production network policy;
+- approval and notification workflows for elevated-role changes.
 
 ## Milestone 7 — Document Format Expansion
 
@@ -188,7 +219,7 @@ Planned work:
 
 ## Explicitly Deferred
 
-The following work remains deferred until secret management, identity lifecycle, retention, and operational foundations are complete:
+The following work remains deferred until secret management, retention, and operational foundations are complete:
 
 - multi-tenant billing;
 - complex administration dashboards;
