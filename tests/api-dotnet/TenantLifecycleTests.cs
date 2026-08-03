@@ -2,10 +2,11 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using EnterpriseDocumentAssistant.Api;
 using EnterpriseDocumentAssistant.Api.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace EnterpriseDocumentAssistant.Api.Tests;
@@ -168,6 +169,66 @@ public sealed class TenantLifecycleTests
         Assert.False(await AuthorizeAsync(
             handler,
             Principal("user-a", AppRoles.Admin, "tenant-a")));
+    }
+
+    [Theory]
+    [InlineData("Combined", true, true)]
+    [InlineData("Api", true, false)]
+    [InlineData("Worker", false, true)]
+    [InlineData("worker", false, true)]
+    public void Hosting_mode_selects_expected_process_boundaries(
+        string configuredMode,
+        bool runsApi,
+        bool runsWorker)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ApplicationMode"] = configuredMode
+            })
+            .Build();
+
+        var mode = ApplicationHostingMode.FromConfiguration(configuration);
+
+        Assert.Equal(runsApi, mode.RunsApi);
+        Assert.Equal(runsWorker, mode.RunsWorker);
+    }
+
+    [Fact]
+    public void Invalid_hosting_mode_and_invitation_lifetime_fail_closed()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ApplicationMode"] = "unsupported"
+            })
+            .Build();
+        Assert.Throws<InvalidOperationException>(() =>
+            ApplicationHostingMode.FromConfiguration(configuration));
+
+        var options = new TenantLifecycleOptions
+        {
+            DefaultInvitationLifetimeHours = 48,
+            MaximumInvitationLifetimeHours = 24
+        };
+        Assert.Throws<InvalidOperationException>(options.Validate);
+
+        var tokenService = new TenantInvitationTokenService(new TenantLifecycleOptions());
+        var exception = Assert.Throws<TenantLifecycleException>(() =>
+            tokenService.Create(0, DateTimeOffset.UtcNow));
+        Assert.Equal("invalid_invitation_lifetime", exception.Code);
+    }
+
+    [Fact]
+    public void Invitation_hash_rejects_blank_token_and_is_stable()
+    {
+        var first = TenantInvitationTokenService.Hash("one-time-token");
+        var second = TenantInvitationTokenService.Hash("one-time-token");
+
+        Assert.Equal(first, second);
+        Assert.Equal(64, first.Length);
+        Assert.Throws<TenantLifecycleException>(() =>
+            TenantInvitationTokenService.Hash(" "));
     }
 
     private static async Task<bool> AuthorizeAsync(
