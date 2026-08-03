@@ -1,8 +1,8 @@
 # Architecture Overview
 
-Enterprise AI Document Assistant is a local-first reference system for tenant-isolated document ingestion, durable background processing, persistent semantic retrieval, and source-aware answers.
+Enterprise AI Document Assistant is a local-first reference system for managed tenant document ingestion, durable background processing, persistent semantic retrieval, and grounded answers.
 
-The executable document pipeline runs in ASP.NET Core. FastAPI remains a small boundary for future Python-specific integrations.
+ASP.NET Core is packaged once but runs in separate API and Worker modes in Docker Compose. FastAPI remains a small boundary for future Python-specific integrations.
 
 ## High-Level Flow
 
@@ -11,70 +11,128 @@ Authenticated client
     |
     | JWT: sub + tenant_id + role
     v
-ASP.NET Core API
+Public ASP.NET Core API (ApplicationMode=Api)
     |
+    |-- validate active tenant and durable membership
     |-- User: tenant + owner scope
-    |-- Admin: tenant scope
-    |-- PlatformAdmin: explicit privileged scope
+    |-- Admin: durable Admin + tenant scope
+    |-- PlatformAdmin: explicit platform scope
     |
-    +--> Local document storage
+    +--> document_app connection: tenant-scoped writes and reads
+    +--> document_platform connection: lifecycle mutations and cross-tenant reads
+    +--> shared document-storage volume
+    +--> atomic document + Pending job enqueue
+    +--> audit and telemetry
+
+Independent ASP.NET Core Worker (ApplicationMode=Worker)
     |
-    +--> PostgreSQL
-    |       - document_app: forced RLS, transaction-local tenant context
-    |       - document_privileged: worker/platform policy
-    |       - documents, chunks, and jobs tagged with tenant_id
-    |       - pgvector cosine retrieval
+    |-- document_privileged connection only
+    |-- shared document-storage volume
+    |-- claim with FOR UPDATE SKIP LOCKED
+    |-- extract, chunk, embed, and persist
+    |-- retry, recover, complete, or fail jobs
+    v
+PostgreSQL + pgvector
     |
-    +--> Hosted ingestion worker
-    |       - claim with FOR UPDATE SKIP LOCKED
-    |       - extract, chunk, embed, and persist
-    |       - preserve owner and tenant identity
-    |       - retry, recover, complete, or fail jobs
-    |
-    +--> Redis infrastructure
-    |
-    +--> FastAPI integration boundary
+    +--> forced-RLS tenants, memberships, invitations
+    +--> forced-RLS documents, chunks, jobs, audit events
+    +--> tenant-tagged vector retrieval
 ```
 
 ## Security and Trust Boundaries
 
 ### JWT boundary
 
-Every document request requires:
+Every protected request requires:
 
 - validated issuer, audience, signature, lifetime, and token timestamps;
 - stable `sub` user identity;
-- stable `tenant_id` organization or workspace identity;
-- one of `User`, `Admin`, or `PlatformAdmin`.
+- stable `tenant_id` organization identity;
+- a supported application role.
 
-The API never accepts owner or tenant identity from document request payloads.
+The JWT authenticates the requested identity and tenant. It does not create a tenant or membership and is not the final authorization source.
 
-### Application authorization boundary
+### Durable lifecycle authorization boundary
+
+For non-PlatformAdmin access, the application checks:
+
+1. the tenant exists;
+2. the tenant is `Active`;
+3. the JWT subject has an `Active` membership;
+4. tenant-admin operations have a durable `Admin` membership.
+
+A JWT that still claims `Admin` after a durable downgrade to `User` is rejected. This prevents the stale token from inheriting tenant-wide document scope. A refreshed correctly scoped token is required.
+
+Removing a membership or disabling a tenant blocks the next protected request without waiting for JWT expiration.
+
+### Ownership boundary
 
 - `User` receives `tenant_id` plus `owner_id = sub` filtering;
-- `Admin` bypasses the owner filter but remains inside one tenant;
-- `PlatformAdmin` can cross tenants only through the explicit privileged database path.
+- durable `Admin` bypasses the owner filter but remains inside one active tenant;
+- `PlatformAdmin` can cross tenants through the explicit platform path.
 
-Document listing, processing status, Search, Ask, and returned source text share this context.
+The API never accepts owner, tenant, or membership scope from document request payloads.
 
 ### Database boundary
 
-The migration creates two non-superuser PostgreSQL roles:
+The migration creates three non-superuser, non-`BYPASSRLS` PostgreSQL roles:
 
-- `document_app`: runtime role restricted by forced Row-Level Security;
-- `document_privileged`: background worker and platform-administration role allowed by explicit privileged policies.
+- `document_app`: tenant-runtime operations restricted by forced RLS;
+- `document_platform`: tenant lifecycle mutations, cross-tenant reads, and audit insertion without ingestion/document mutation grants;
+- `document_privileged`: background ingestion, retries, recovery, and vector/document status mutations.
 
-Neither role has `SUPERUSER` or `BYPASSRLS`.
-
-Runtime operations execute inside a transaction after:
+Runtime tenant operations execute inside a transaction after:
 
 ```sql
 SELECT set_config('app.tenant_id', @tenantId, true);
 ```
 
-RLS policies compare row `tenant_id` with the transaction-local value. Missing context produces no matching rows, while cross-tenant writes fail the `WITH CHECK` policy.
+RLS policies compare row `tenant_id` with the transaction-local value. Missing context returns no rows, and cross-tenant writes fail policy checks.
 
-## Data Model
+The public API receives `document_app` and `document_platform`. It never receives `document_privileged`. Only the Worker receives the full ingestion credential.
+
+### Process and storage boundary
+
+Docker Compose runs:
+
+- `document-api`: public port, no hosted ingestion worker, no privileged worker credential;
+- `document-worker`: no published host port, hosted worker enabled, privileged credential;
+- a named shared volume mounted at `/app/storage/documents` in both services.
+
+The API stores an uploaded file and atomically enqueues metadata/job state. The Worker reads the same file through the named volume. This separates process credentials while preserving the local-storage implementation.
+
+`ApplicationMode=Combined` remains available for isolated tests and compatibility. It is not the recommended deployment trust boundary.
+
+## Managed Tenant Data Model
+
+### Tenants
+
+`tenants` stores display name, `Active`/`Disabled` state, and lifecycle actors/timestamps.
+
+Provisioning creates a tenant and initial Admin in one transaction. Deactivation and reactivation are PlatformAdmin operations.
+
+### Memberships
+
+`tenant_memberships` stores one role/status record per tenant and subject:
+
+- role: `User` or `Admin`;
+- status: `Active` or `Removed`.
+
+The final active tenant Admin cannot be removed or downgraded. PostgreSQL mutations lock membership/admin rows before checking the invariant.
+
+### Invitations
+
+`tenant_invitations` stores target subject, intended role, status, expiry, and a SHA-256 token digest.
+
+The plaintext token:
+
+- is generated from 32 random bytes;
+- is returned only in the create response;
+- is never stored or returned by list APIs;
+- is bound to the JWT subject and tenant during acceptance;
+- cannot be replayed after acceptance, revocation, or expiry.
+
+## Document Data Model
 
 ### Documents
 
@@ -92,14 +150,44 @@ Stores document chunk text, pgvector embeddings, chunk position, and `tenant_id`
 
 A composite tenant/document foreign key prevents an indexed chunk from changing tenant independently of its document.
 
+### Audit events
+
+Stores append-only tenant-aware events for document, ingestion, Search, Ask, audit access, provisioning, tenant status, memberships, and invitations.
+
+Audit metadata excludes bearer tokens, invitation tokens/digests, questions, source text, generated answers, provider bodies, and file content.
+
+## Provisioning and Invitation Flow
+
+```text
+PlatformAdmin JWT
+    |
+POST /api/platform/tenants
+    |
+Platform database transaction
+    |
+Insert tenant + initial Admin atomically
+    |
+Tenant Admin creates invitation
+    |
+Generate 32 random bytes -> return plaintext once
+    |
+Persist SHA-256 digest + target subject + role + expiry
+    |
+Invited subject authenticates and accepts token
+    |
+Lock invitation -> validate subject/status/expiry -> activate membership -> accept token
+```
+
+Email delivery and identity proofing are outside the repository. A production system must deliver invitation secrets through a trusted channel.
+
 ## Upload and Enqueue Flow
 
 ```text
-Validate JWT and access policy
+Validate JWT and durable membership
     |
 Derive owner and tenant from claims
     |
-Validate and store file
+Validate and store file on shared volume
     |
 Open tenant-scoped PostgreSQL transaction
     |
@@ -113,36 +201,42 @@ If database persistence fails after file storage, the newly stored file is remov
 ## Worker Flow
 
 ```text
-Privileged worker polls Pending jobs
+Independent privileged worker polls Pending jobs
     |
 Claim one row with FOR UPDATE SKIP LOCKED
     |
 Load document metadata and stored tenant/owner
+    |
+Read shared stored file
     |
 Extract -> Chunk -> Embed -> Upsert tenant-tagged vectors
     |
 Complete, retry, recover, or fail
 ```
 
-The worker uses the privileged connection because it must process jobs across tenants. The reference Compose deployment hosts this worker in the API process; production should separate that privileged trust boundary.
+The Worker uses the privileged connection because it processes jobs across tenants. It is not exposed as a public API service.
 
 ## Search and Ask Flow
 
 ```text
 Validate JWT
     |
+Check active tenant + durable membership/role
+    |
 Build owner/tenant access context
     |
 Generate deterministic query embedding
     |
-Open RLS-scoped or privileged PostgreSQL transaction
+Open RLS-scoped or platform-read PostgreSQL transaction
     |
 Filter authorized rows before pgvector ranking
     |
-Return ranked chunks or source-aware answer
+Run evidence/citation grounding gate
+    |
+Return deterministic or optional provider answer + independent sources
 ```
 
-`User` requests apply owner and tenant scope. `Admin` applies tenant scope. `PlatformAdmin` uses the explicit privileged path.
+Retrieved source metadata is created before provider generation and is never parsed from provider output.
 
 ## Retry and Recovery
 
@@ -157,41 +251,58 @@ Return ranked chunks or source-aware answer
 
 The repository verifies:
 
-- JWT and role enforcement;
+- JWT claim and role validation;
+- active tenant and durable membership enforcement;
+- immediate denial after removal, downgrade, or deactivation;
+- final-Admin protection;
+- invitation one-time use, subject binding, expiry/revocation, and digest-only storage;
 - owner isolation inside one tenant;
-- administrator access across owners only inside one tenant;
-- platform administrator access across tenants;
+- Admin access across owners only inside one tenant;
+- PlatformAdmin cross-tenant reads through the narrow platform role;
 - direct RLS reads under multiple tenant contexts;
-- rejection of cross-tenant database writes;
+- rejection of cross-tenant lifecycle/document writes;
 - fail-closed reads without tenant context;
-- tenant constraints, composite foreign keys, roles, policies, and forced RLS;
-- atomic enqueue and ingestion lifecycle behavior;
-- retrieval persistence and authorization after API restart.
+- roles, grants, constraints, indexes, policies, and forced RLS;
+- absence of the privileged connection from the API container;
+- independent Worker processing through the shared volume;
+- atomic enqueue, ingestion lifecycle, restart persistence, and retrieval;
+- audit secret exclusion and append-only behavior;
+- retrieval and answer regression baselines.
 
 ## Component Responsibilities
 
-### ASP.NET Core
+### Public ASP.NET Core API
 
-- public REST API and Swagger;
-- authentication and authorization;
-- tenant/owner access context;
-- local file storage;
-- atomic document and job persistence;
-- hosted ingestion worker;
-- text extraction, chunking, deterministic embeddings;
-- semantic search and source-aware answers.
+- JWT authentication;
+- durable tenant/membership authorization;
+- tenant provisioning and management APIs;
+- invitation lifecycle;
+- owner/tenant access context;
+- local shared file storage;
+- atomic document/job enqueue;
+- processing-status reads;
+- semantic search and grounded answers;
+- audit and telemetry.
+
+### ASP.NET Core Worker
+
+- privileged job claiming;
+- text extraction and chunking;
+- deterministic embeddings;
+- semantic-index writes;
+- retries, recovery, completion, and controlled failure.
 
 ### PostgreSQL and pgvector
 
-- durable metadata, jobs, chunks, and embeddings;
+- durable lifecycle, metadata, jobs, chunks, embeddings, and audit records;
 - forced tenant Row-Level Security;
-- role and policy enforcement;
+- database role and policy enforcement;
 - job claiming and lifecycle updates;
 - vector similarity ranking.
 
 ### FastAPI
 
-- health and placeholder indexing-boundary endpoints;
+- health and indexing-boundary endpoints;
 - future Python-specific parsing or provider integrations only when justified and tested.
 
 ### Redis
@@ -202,14 +313,13 @@ Redis is available for future caching, rate limiting, or coordination but is not
 
 Before sensitive-data use, the system still requires:
 
-- tenant provisioning, memberships, invitation and deactivation workflows;
-- external identity-provider synchronization, key rotation, and token revocation;
-- durable audit events and tamper-resistant retention;
-- correlation identifiers, metrics, and OpenTelemetry traces;
+- external IdP/SCIM synchronization, domain verification, managed key rotation, and session/token revocation;
+- trusted invitation delivery and recipient proofing;
+- tenant quotas, retention, export, deletion, legal hold, and recovery workflows;
 - encrypted storage, centralized secrets, TLS, and restricted networking;
+- production telemetry storage, dashboards, alerts, SLOs, and audit retention;
 - malware scanning and file-signature validation;
-- separate privileged worker/platform deployment;
-- backup, restore, deletion, load, failover, and capacity validation;
-- retrieval evaluation and prompt-injection controls.
+- backup, restore, load, failover, and capacity validation;
+- representative retrieval/answer evaluation and approved provider governance.
 
-See [Tenant Isolation](TENANT_ISOLATION.md), [Authentication and Authorization](AUTHENTICATION_AND_AUTHORIZATION.md), [Security Policy](../SECURITY.md), [Background Ingestion](BACKGROUND_INGESTION.md), and [Roadmap](ROADMAP.md).
+See [Managed Tenant Lifecycle](TENANT_LIFECYCLE.md), [Tenant Isolation](TENANT_ISOLATION.md), [Authentication and Authorization](AUTHENTICATION_AND_AUTHORIZATION.md), [Security Policy](../SECURITY.md), [Background Ingestion](BACKGROUND_INGESTION.md), and [Roadmap](ROADMAP.md).
