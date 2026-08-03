@@ -463,6 +463,7 @@ public sealed class GroundedAnswerService : IGroundedAnswerService
         }
 
         return CitationPattern.Matches(answer)
+            .Cast<Match>()
             .Select(match => int.Parse(match.Groups["number"].Value))
             .Distinct()
             .Order()
