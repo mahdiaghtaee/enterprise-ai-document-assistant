@@ -13,6 +13,14 @@ public static class AuditEventTypes
     public const string DocumentSearchExecuted = "document.search_executed";
     public const string DocumentAskExecuted = "document.ask_executed";
     public const string AuditEventsRead = "audit.events_read";
+    public const string TenantProvisioned = "tenant.provisioned";
+    public const string TenantDeactivated = "tenant.deactivated";
+    public const string TenantReactivated = "tenant.reactivated";
+    public const string TenantMembershipRoleChanged = "tenant.membership_role_changed";
+    public const string TenantMembershipRemoved = "tenant.membership_removed";
+    public const string TenantInvitationCreated = "tenant.invitation_created";
+    public const string TenantInvitationAccepted = "tenant.invitation_accepted";
+    public const string TenantInvitationRevoked = "tenant.invitation_revoked";
 }
 
 public sealed record AuditEventWrite(
