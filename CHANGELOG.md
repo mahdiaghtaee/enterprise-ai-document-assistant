@@ -27,29 +27,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A versioned tenant-safe retrieval corpus with exact, ambiguous, vocabulary-mismatch, and empty-query categories.
 - A provider-free .NET retrieval evaluation command using the existing deterministic embedding and semantic-index implementations.
 - Machine-readable Precision@K, Recall@K, MRR, empty-query accuracy, mean latency, and p95 latency reporting.
-- A committed observed baseline with explicit quality and latency regression thresholds.
+- A committed observed retrieval baseline with explicit quality and latency regression thresholds.
 - Dedicated retrieval metric, input-validation, baseline-comparison, and empty-query tests.
 - A read-only retrieval-quality workflow that retains the JSON report as a fourteen-day artifact.
+- `IAnswerGenerator` and `IGroundedAnswerService` abstractions with a deterministic local default.
+- An optional OpenAI-compatible Chat Completions grounded-answer provider.
+- Fail-closed provider validation for HTTPS endpoint, API key, model, timeout, and output-token limits.
+- Source-count, context-character, and question-length boundaries before external provider calls.
+- Prompt instructions that treat retrieved source content as untrusted data.
+- Mandatory request-local `[S#]` citations and rejection of uncited or out-of-range provider answers.
+- Explicit insufficient-evidence outcomes for missing, low-confidence, conflicting, and provider-declined evidence.
+- Controlled timeout, network, rate-limit, credential, malformed-response, empty-response, and ungrounded-response mappings.
+- Provider-generation status, duration, controlled-failure, and token-usage metrics.
+- A versioned eight-case answer-quality dataset with strict grounding, insufficient-evidence, provider-call, and rejection thresholds.
+- A credential-free answer-evaluation command and read-only workflow with a fourteen-day JSON artifact.
+- Unit and endpoint tests for deterministic answers, prompt boundaries, provider protocol, source citations, and controlled provider failures.
 
 ### Changed
 
 - `Admin` remains tenant scoped; only `PlatformAdmin` uses the privileged cross-tenant database path.
 - Every API and FastAPI response carries a validated correlation identifier.
-- Search and Ask audit metadata records only bounded operational values such as `topK`, result/source count, and duration; query and question text are excluded.
-- Docker Compose accepts an optional `OTEL_EXPORTER_OTLP_ENDPOINT` while retaining collector-free defaults.
+- Search and Ask audit metadata records only bounded operational values; query, question, source, answer, response-body, and credential content are excluded.
+- Docker Compose accepts optional OpenTelemetry and answer-provider configuration while retaining collector-free and credential-free defaults.
 - Health behavior is separated into backward-compatible process health, liveness, and dependency readiness.
-- Retrieval changes can now be compared against a reproducible baseline before embedding, ranking, chunking, or provider implementations change.
-- Public Search and Ask response contracts remain unchanged by the evaluation tooling.
-- Documentation now treats tenant isolation, audit/observability, and the retrieval-evaluation foundation as delivered while retaining explicit production limitations.
+- Retrieval changes can be compared against a reproducible baseline before embedding, ranking, chunking, or provider implementations change.
+- Ask keeps the original question, answer, source count, and source fields while adding answer status, provider, model, grounding, and reason metadata.
+- Retrieved source metadata is constructed independently from provider output and remains available in controlled provider-failure responses.
+- The default Ask answer now includes a request-local source citation and uses the same grounding gate as the optional provider path.
+- Documentation now treats tenant isolation, audit/observability, retrieval evaluation, and grounded-answer provider foundations as delivered while retaining explicit production limitations.
 
 ### Migration notes
 
 - Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql`, `infra/postgres/init/zzzzz-tenant-isolation.sql`, and `infra/postgres/init/zzzzzz-audit-observability.sql` automatically.
-- Existing PostgreSQL volumes require a reviewed manual application of the new idempotent audit migration after backup because entrypoint scripts do not rerun.
+- Existing PostgreSQL volumes require a reviewed manual application of the idempotent migrations after backup because entrypoint scripts do not rerun.
 - Application roles require `SELECT` and `INSERT`, but not `UPDATE` or `DELETE`, on `audit_events`.
 - Deployments may leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty or configure a trusted OTLP/HTTP collector endpoint.
 - Existing documents remain assigned to `legacy-system` and `legacy-tenant` until mapped to production identities.
-- Retrieval evaluation adds no database migration and runs independently of PostgreSQL by using the configured local deterministic contracts.
+- Retrieval and answer evaluation add no database migration and run without PostgreSQL or external credentials.
+- Existing deployments remain on deterministic answer generation unless `ANSWER_GENERATION_PROVIDER=OpenAiCompatible` is selected explicitly.
+- External-provider deployments must supply endpoint, API key, and model through trusted configuration and must review provider data-handling terms before activation.
 
 ### Known limitations
 
@@ -58,8 +74,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A production telemetry backend, dashboards, alerts, SLOs, audit retention, legal hold, and tamper-evident archival are not bundled.
 - Token revocation, managed key rotation, encrypted storage, malware scanning, and centralized secret management remain absent.
 - The repository signing key and token helper are for local development only.
-- The first retrieval corpus is small and synthetic; it detects deterministic regressions but does not establish production search accuracy.
-- The current vocabulary-mismatch case is intentionally a miss at `K = 3`, and the ambiguous case retrieves only one of two relevant chunks.
+- The retrieval and answer datasets are small and synthetic; they detect controlled regressions but do not establish production factual accuracy.
+- The current vocabulary-mismatch retrieval case is intentionally a miss at `K = 3`, and the ambiguous case retrieves only one of two relevant chunks.
+- The OpenAI-compatible path is verified with in-memory protocol doubles and does not bundle, call, or endorse a real provider.
+- External provider retention, residency, training, subprocessors, cost, and contractual controls require deployment-specific review.
 - The project remains unsuitable for confidential or regulated documents without additional operational and compliance controls.
 
 ## 0.3.0 - 2026-07-27

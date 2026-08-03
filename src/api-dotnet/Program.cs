@@ -53,6 +53,7 @@ builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtra
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
 builder.Services.AddSingleton<IEmbeddingGenerator, DeterministicEmbeddingGenerator>();
 builder.Services.AddConfiguredSemanticIndex(builder.Configuration);
+builder.Services.AddConfiguredAnswerGeneration(builder.Configuration);
 builder.Services.AddSingleton<IDocumentIngestionProcessor, DocumentIngestionProcessor>();
 builder.Services.Configure<DocumentIngestionWorkerOptions>(
     builder.Configuration.GetSection("IngestionWorker"));
@@ -454,8 +455,11 @@ documentApi.MapPost("/ask", async (
     ClaimsPrincipal principal,
     IEmbeddingGenerator embeddingGenerator,
     ISemanticIndexStore semanticIndexStore,
+    IGroundedAnswerService groundedAnswerService,
+    AnswerGenerationOptions answerOptions,
     IAuditEventRepository auditRepository,
     ICorrelationContextAccessor correlation,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Question))
@@ -476,6 +480,7 @@ documentApi.MapPost("/ask", async (
         ActivityKind.Internal);
     activity?.SetTag("tenant.id", access.TenantId);
     activity?.SetTag("ask.top_k", topK);
+    activity?.SetTag("answer.provider", answerOptions.Provider);
     var stopwatch = Stopwatch.StartNew();
 
     var embeddingResponse = await embeddingGenerator.GenerateAsync(
@@ -500,10 +505,95 @@ documentApi.MapPost("/ask", async (
         result.Score,
         result.Record.Text)).ToArray();
 
+    var generationStopwatch = Stopwatch.StartNew();
+    GroundedAnswerResult answerResult;
+
+    try
+    {
+        answerResult = await groundedAnswerService.GenerateAsync(
+            request.Question,
+            sources,
+            cancellationToken);
+    }
+    catch (AnswerProviderException exception)
+    {
+        generationStopwatch.Stop();
+        stopwatch.Stop();
+        activity?.SetStatus(ActivityStatusCode.Error, exception.Code);
+        activity?.SetTag("ask.source_count", sources.Length);
+        activity?.SetTag("answer.failure_code", exception.Code);
+        activity?.SetTag("answer.retryable", exception.Retryable);
+        ApplicationTelemetry.AskRequests.Add(1);
+        ApplicationTelemetry.AskDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+        ApplicationTelemetry.AnswerGenerationDuration.Record(generationStopwatch.Elapsed.TotalMilliseconds);
+        ApplicationTelemetry.AnswerGenerationFailures.Add(
+            1,
+            ApplicationTelemetry.Tag("provider", answerOptions.Provider),
+            ApplicationTelemetry.Tag("code", exception.Code),
+            ApplicationTelemetry.Tag("retryable", exception.Retryable));
+
+        logger.LogWarning(
+            exception,
+            "Grounded answer generation failed with code {AnswerFailureCode}; retryable={Retryable}.",
+            exception.Code,
+            exception.Retryable);
+
+        await AuditEventRecorder.TryAppendAsync(
+            auditRepository,
+            AuditEventWrite.Create(
+                access,
+                RequireCorrelationId(correlation),
+                AuditEventTypes.DocumentAskExecuted,
+                "ask",
+                "document_index",
+                resourceId: null,
+                outcome: "failure",
+                details: new Dictionary<string, object?>
+                {
+                    ["topK"] = topK,
+                    ["sourceCount"] = sources.Length,
+                    ["provider"] = answerOptions.Provider,
+                    ["failureCode"] = exception.Code,
+                    ["retryable"] = exception.Retryable,
+                    ["durationMs"] = stopwatch.Elapsed.TotalMilliseconds
+                }),
+            access.UsePrivilegedDatabase,
+            logger,
+            cancellationToken);
+
+        return Results.Json(
+            new DocumentAskFailureResponse(
+                request.Question,
+                exception.Message,
+                exception.Code,
+                exception.Retryable,
+                sources.Length,
+                sources),
+            statusCode: exception.StatusCode);
+    }
+
+    generationStopwatch.Stop();
     stopwatch.Stop();
     activity?.SetTag("ask.source_count", sources.Length);
+    activity?.SetTag("answer.status", answerResult.Status);
+    activity?.SetTag("answer.is_grounded", answerResult.IsGrounded);
     ApplicationTelemetry.AskRequests.Add(1);
     ApplicationTelemetry.AskDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+    ApplicationTelemetry.AnswerGenerationDuration.Record(generationStopwatch.Elapsed.TotalMilliseconds);
+    ApplicationTelemetry.AnswerGenerationResults.Add(
+        1,
+        ApplicationTelemetry.Tag("provider", answerResult.Provider),
+        ApplicationTelemetry.Tag("status", answerResult.Status));
+
+    if (answerResult.Usage?.InputTokens is int inputTokens)
+    {
+        ApplicationTelemetry.AnswerInputTokens.Record(inputTokens);
+    }
+
+    if (answerResult.Usage?.OutputTokens is int outputTokens)
+    {
+        ApplicationTelemetry.AnswerOutputTokens.Record(outputTokens);
+    }
 
     await auditRepository.AppendAsync(
         AuditEventWrite.Create(
@@ -518,20 +608,28 @@ documentApi.MapPost("/ask", async (
             {
                 ["topK"] = topK,
                 ["sourceCount"] = sources.Length,
+                ["answerStatus"] = answerResult.Status,
+                ["provider"] = answerResult.Provider,
+                ["model"] = answerResult.Model,
+                ["isGrounded"] = answerResult.IsGrounded,
+                ["reasonCode"] = answerResult.ReasonCode,
+                ["inputTokens"] = answerResult.Usage?.InputTokens,
+                ["outputTokens"] = answerResult.Usage?.OutputTokens,
                 ["durationMs"] = stopwatch.Elapsed.TotalMilliseconds
             }),
         access.UsePrivilegedDatabase,
         cancellationToken);
 
-    var answer = sources.Length == 0
-        ? "I could not find enough indexed document context to answer this question. Upload and index a relevant document first, then try again."
-        : $"Based on the indexed documents, the most relevant source is from {sources[0].FileName}: \"{(sources[0].Text.Length > 400 ? sources[0].Text[..400] + "..." : sources[0].Text)}\"";
-
     return Results.Ok(new DocumentAskResponse(
         request.Question,
-        answer,
+        answerResult.Answer,
         sources.Length,
-        sources));
+        sources,
+        answerResult.Status,
+        answerResult.Provider,
+        answerResult.Model,
+        answerResult.IsGrounded,
+        answerResult.ReasonCode));
 });
 
 var auditApi = app.MapGroup("/api/audit")

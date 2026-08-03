@@ -1,0 +1,87 @@
+name: Grounded answer evaluation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  answer-evaluation:
+    name: Grounding and insufficient-evidence regression checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore answer evaluation tool
+        run: dotnet restore tools/answer-evaluation/EnterpriseDocumentAssistant.AnswerEvaluation.csproj
+
+      - name: Run grounded answer unit and endpoint tests
+        run: >-
+          dotnet test tests/api-dotnet/EnterpriseDocumentAssistant.Api.Tests.csproj
+          --configuration Release
+
+      - name: Run versioned answer evaluation
+        run: >-
+          dotnet run
+          --project tools/answer-evaluation/EnterpriseDocumentAssistant.AnswerEvaluation.csproj
+          --configuration Release
+          --no-restore
+          --
+          --dataset evaluation/answers/cases.v1.json
+          --baseline evaluation/answers/baseline.v1.json
+          --output artifacts/answer-evaluation.json
+
+      - name: Verify machine-readable answer report
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+
+          with open('artifacts/answer-evaluation.json', encoding='utf-8') as report_file:
+              report = json.load(report_file)
+
+          assert report['datasetVersion'] == '1.0.0', report
+          assert report['caseCount'] == 8, report
+          assert report['comparison']['passed'] is True, report
+          assert report['metrics']['caseAccuracy'] == 1.0, report
+          assert report['metrics']['groundedAnswerAccuracy'] == 1.0, report
+          assert report['metrics']['insufficientEvidenceAccuracy'] == 1.0, report
+          assert report['metrics']['groundingRejectionAccuracy'] == 1.0, report
+          assert report['metrics']['providerCallExpectationAccuracy'] == 1.0, report
+
+          categories = {case['category'] for case in report['cases']}
+          assert categories == {
+              'grounded_answer',
+              'insufficient_evidence',
+              'grounding_rejection',
+          }, categories
+          assert all(case['passed'] for case in report['cases']), report
+          assert any(
+              case['failureCode'] == 'answer_provider_ungrounded_response'
+              for case in report['cases']
+          ), report
+          PY
+
+      - name: Upload grounded answer evaluation report
+        uses: actions/upload-artifact@v7
+        with:
+          name: answer-evaluation-report
+          path: artifacts/answer-evaluation.json
+          if-no-files-found: error
+          retention-days: 14

@@ -10,7 +10,7 @@ This roadmap separates completed capabilities from planned work. A milestone is 
 - PostgreSQL-backed document metadata
 - plain-text extraction and fixed-size chunking
 - deterministic local embeddings
-- semantic search and deterministic source-aware Ask endpoints
+- semantic search and grounded Ask endpoints
 - sample documents and end-to-end demo script
 - .NET, Python, PostgreSQL, container, CodeQL, and Dependency Review checks
 
@@ -106,49 +106,74 @@ Remaining operational work:
 - load-based trace sampling and metric-cardinality review;
 - backup and restore exercises for audit and document data.
 
-## Milestone 5 — Retrieval Evaluation and Provider Integrations (Evaluation Foundation Completed)
+## Milestone 5 — Retrieval Evaluation and Grounded Answer Providers (Completed Foundation)
 
-Goal: measure retrieval quality before introducing real embedding and language-model providers, without coupling public contracts to a vendor or reducing testability.
+Goal: measure retrieval and grounding behavior before broader provider adoption, without coupling public contracts to a vendor or reducing testability.
 
-Tracked by issue #3 for the completed evaluation foundation.
+Tracked by completed issue #3 for retrieval evaluation and issue #4 for grounded answer generation.
 
-Delivered:
+Delivered retrieval evaluation:
 
 - a versioned tenant-safe synthetic corpus and explicit document/chunk relevance judgments;
 - exact, ambiguous, vocabulary-mismatch, and empty-query categories;
-- a repeatable .NET evaluation command that uses the existing deterministic embedding and semantic-index abstractions;
-- machine-readable per-query and aggregate reports;
-- Precision@K, Recall@K, mean reciprocal rank, empty-query accuracy, mean latency, and p95 latency metrics;
-- an observed baseline and reviewed regression thresholds;
-- non-zero process exit codes for quality or latency regressions;
-- a dedicated read-only CI workflow with unit tests, report-contract checks, and retained artifacts;
-- documentation of metric definitions, baseline weaknesses, corpus versioning, and threshold-update rules;
-- unchanged public Search and Ask response contracts.
+- a repeatable .NET evaluation command using the existing deterministic embedding and semantic-index abstractions;
+- Precision@K, Recall@K, mean reciprocal rank, empty-query accuracy, and local latency metrics;
+- machine-readable reports, observed baseline, reviewed regression thresholds, and non-zero failure exit codes;
+- a read-only CI workflow with retained artifacts;
+- unchanged public Search contracts.
 
-Current baseline boundary:
+Delivered grounded answer generation:
 
-- exact-match queries rank their relevant chunk first;
-- the ambiguous query retrieves only one of two relevant chunks in the first three results;
-- the vocabulary-mismatch query currently misses in the first three results;
-- the corpus is intentionally small and synthetic and does not support production-accuracy claims.
+- `IAnswerGenerator` and `IGroundedAnswerService` abstractions;
+- deterministic local extractive generation as the default;
+- an optional OpenAI-compatible Chat Completions implementation;
+- fail-closed provider configuration for endpoint, credential, model, timeout, and output limits;
+- source-count, context-character, and question-length boundaries;
+- source content treated as untrusted prompt data;
+- mandatory request-local `[S#]` citations for accepted provider answers;
+- controlled rejection of uncited or out-of-range citations;
+- explicit insufficient-evidence results for missing, low-confidence, conflicting, or provider-declined evidence;
+- controlled timeout, network, rate-limit, credential, malformed-response, and empty-response handling;
+- source metadata preserved independently from generated text and provider failures;
+- token-usage, duration, status, and failure metrics without question, source, answer, response-body, or credential content;
+- a versioned eight-case answer-quality dataset with strict grounding-gate thresholds and retained CI reports;
+- unit, HTTP-protocol, endpoint, configuration, and regression tests that require no real provider credentials.
+
+Current quality boundary:
+
+- the retrieval corpus remains small and synthetic;
+- the local deterministic answer is extractive rather than generative;
+- the external-provider path proves protocol, grounding gates, and controlled failures, not model factual accuracy;
+- provider activation transfers authorized question/context data outside the deployment and requires a separate privacy, residency, retention, cost, and contractual review.
 
 Remaining provider and evaluation work:
 
 - a larger representative and reviewed corpus;
 - multilingual, duplicate, long-document, adversarial, and category-specific evaluation;
 - confidence intervals and category-level regression thresholds;
-- grounded-answer citation correctness and answer-support metrics;
-- provider interfaces and configuration;
-- one local provider and one external provider;
-- deterministic fake providers for tests;
-- timeout, retry, cancellation, and error mapping;
-- cost and token-usage metadata where applicable;
-- provider data-handling and tenant-isolation review;
-- PostgreSQL, local-provider, and external-provider comparison reports.
+- human-reviewed answer support, completeness, and citation-correctness judgments;
+- one approved external-provider comparison run using non-sensitive evaluation data;
+- optional provider-specific tokenization and cost estimation;
+- embedding-provider abstraction beyond the deterministic model;
+- PostgreSQL, local-provider, and approved external-provider comparison reports;
+- centralized secret management and managed key rotation before production provider activation.
 
 Python-specific processing should move to FastAPI only when a concrete library or deployment requirement justifies the additional service complexity.
 
-## Milestone 6 — Document Format Expansion
+## Milestone 6 — Tenant Lifecycle and Trust-boundary Separation
+
+Goal: move from token-claim demonstrations to managed organization lifecycle and independently deployable privileged processing.
+
+Planned work:
+
+- tenant provisioning and deactivation;
+- membership, invitation, role-change, and removal workflows;
+- external identity-provider synchronization;
+- independent deployment identity for the privileged ingestion worker;
+- per-tenant quotas, retention, export, and deletion workflows;
+- key rotation and token-revocation integration.
+
+## Milestone 7 — Document Format Expansion
 
 Goal: support additional formats safely.
 

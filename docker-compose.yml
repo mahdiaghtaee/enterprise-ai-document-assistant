@@ -15,6 +15,17 @@ services:
       OpenTelemetry__ServiceName: enterprise-document-assistant-api
       OpenTelemetry__ServiceVersion: ${SERVICE_VERSION:-dev}
       OpenTelemetry__OtlpEndpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      AnswerGeneration__Provider: ${ANSWER_GENERATION_PROVIDER:-Deterministic}
+      AnswerGeneration__MinimumSourceScore: ${ANSWER_MINIMUM_SOURCE_SCORE:-0.20}
+      AnswerGeneration__MaxSources: ${ANSWER_MAX_SOURCES:-5}
+      AnswerGeneration__MaxContextCharacters: ${ANSWER_MAX_CONTEXT_CHARACTERS:-12000}
+      AnswerGeneration__RejectNearTieEvidence: ${ANSWER_REJECT_NEAR_TIE_EVIDENCE:-true}
+      AnswerGeneration__ConflictScoreDelta: ${ANSWER_CONFLICT_SCORE_DELTA:-0.000001}
+      AnswerGeneration__OpenAiCompatible__Endpoint: ${ANSWER_PROVIDER_ENDPOINT:-}
+      AnswerGeneration__OpenAiCompatible__ApiKey: ${ANSWER_PROVIDER_API_KEY:-}
+      AnswerGeneration__OpenAiCompatible__Model: ${ANSWER_PROVIDER_MODEL:-}
+      AnswerGeneration__OpenAiCompatible__TimeoutSeconds: ${ANSWER_PROVIDER_TIMEOUT_SECONDS:-20}
+      AnswerGeneration__OpenAiCompatible__MaxOutputTokens: ${ANSWER_PROVIDER_MAX_OUTPUT_TOKENS:-500}
     depends_on:
       postgres:
         condition: service_healthy
