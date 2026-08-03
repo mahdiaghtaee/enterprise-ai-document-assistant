@@ -1,140 +1,158 @@
 # Tenant Isolation
 
-The document API treats `tenant_id` as a required security boundary. Tenant identity is derived from the validated JWT and is never accepted from document request bodies, upload forms, search requests, or query-string parameters.
+The API treats `tenant_id` as a required security boundary. Tenant identity is derived from the validated JWT and is never accepted from document payloads, upload forms, Search/Ask requests, or query-string scope parameters.
+
+JWT identity is necessary but not sufficient. Durable tenant and membership records authorize non-platform access.
 
 ## Access model
 
-A valid document token contains:
+A valid token contains:
 
 - `sub`: stable user identifier;
-- `tenant_id`: stable organization or workspace identifier;
+- `tenant_id`: stable organization identifier;
 - `role`: `User`, `Admin`, or `PlatformAdmin`;
-- the issuer, audience, signature, lifetime, and token timestamps required by JWT validation.
+- valid issuer, audience, signature, timestamps, and lifetime.
 
-Role behavior:
+| Role | Durable requirement | Owner scope | Tenant scope | Database path |
+|---|---|---|---|---|
+| `User` | Active tenant + active User/Admin membership | Own documents | Token tenant | `document_app` + RLS |
+| `Admin` | Active tenant + active durable Admin membership | All owners | Token tenant | `document_app` + RLS |
+| `PlatformAdmin` | Platform policy | All owners | All tenants | `document_platform` |
 
-| Role | Owner scope | Tenant scope | Database path |
-|---|---|---|---|
-| `User` | Own documents | Own tenant | RLS-restricted runtime role |
-| `Admin` | All owners | Own tenant | RLS-restricted runtime role |
-| `PlatformAdmin` | All owners | All tenants | Explicit privileged role |
+A stale JWT Admin claim cannot elevate a durable User membership. The request is rejected until the caller receives a correctly scoped token.
 
-`Admin` is intentionally tenant-scoped. Cross-tenant access requires the separate `PlatformAdmin` role and the privileged database connection path.
-
-## Data model
+## Tenant-aware data model
 
 Tenant identity is stored on:
 
+- `tenants.tenant_id`;
+- `tenant_memberships.tenant_id`;
+- `tenant_invitations.tenant_id`;
 - `documents.tenant_id`;
 - `document_chunks.tenant_id`;
-- `document_ingestion_jobs.tenant_id`.
+- `document_ingestion_jobs.tenant_id`;
+- `audit_events.tenant_id`.
 
-Every value is required and checked for nonblank content. Composite foreign keys ensure that a semantic chunk or ingestion job cannot reference a document under a different tenant.
+Values are required and validated. Composite document/tenant foreign keys prevent chunks or jobs from referencing a document in another tenant.
 
-Existing rows are backfilled to `legacy-tenant`. Existing pre-authentication owners remain `legacy-system`.
+Existing data is mapped to explicit legacy tenant/membership records by reviewed migrations. Production mappings must be verified before traffic is enabled.
 
 ## PostgreSQL roles
 
-The migration creates two non-superuser roles:
+Three non-superuser, non-`BYPASSRLS` roles separate responsibilities:
 
-- `document_app`: runtime API role, subject to tenant Row-Level Security;
-- `document_privileged`: background worker and platform-administration role, allowed by explicit privileged policies.
+- `document_app`: tenant-scoped public API reads and writes;
+- `document_platform`: tenant lifecycle mutations, cross-tenant reads, and audit insertion;
+- `document_privileged`: background ingestion writes, retries, recovery, and status/vector mutation.
 
-Neither role has `SUPERUSER` or `BYPASSRLS`.
-
-Docker Compose supplies separate connection strings:
+Docker Compose supplies:
 
 ```text
 ConnectionStrings__Postgres
+ConnectionStrings__PostgresPlatform
 ConnectionStrings__PostgresPrivileged
 ```
 
-The development passwords are configured by:
+Development passwords:
 
 ```text
 APP_DB_PASSWORD
+PLATFORM_DB_PASSWORD
 PRIVILEGED_DB_PASSWORD
 ```
 
-These defaults are local-only. A deployment must supply managed secrets and should separate the privileged worker or platform-administration path from the public API process.
+The API container receives the first two connections only. The Worker receives the privileged connection and has no published host port.
 
 ## Row-Level Security
 
-`infra/postgres/init/zzzzz-tenant-isolation.sql` enables and forces RLS on:
+Forced RLS applies to:
 
+- `tenants`;
+- `tenant_memberships`;
+- `tenant_invitations`;
 - `documents`;
 - `document_chunks`;
-- `document_ingestion_jobs`.
+- `document_ingestion_jobs`;
+- `audit_events`.
 
-The runtime role receives policies equivalent to:
+Tenant-runtime policies use:
 
 ```sql
 tenant_id = NULLIF(current_setting('app.tenant_id', true), '')
 ```
 
-Before a tenant-scoped query or transaction, the application executes:
+Before a tenant-scoped operation, the application executes inside the transaction:
 
 ```sql
 SELECT set_config('app.tenant_id', @tenantId, true);
 ```
 
-The third argument makes the value transaction-local. If the session context is missing, `current_setting(..., true)` produces no matching tenant and runtime reads return no rows. Inserts or updates for a different tenant fail the RLS `WITH CHECK` policy.
+The value is transaction-local. Missing context exposes no tenant rows; writes to another tenant fail `WITH CHECK`.
+
+`document_platform` has explicit lifecycle and cross-tenant read policies but no document/job/chunk mutation grants. `document_privileged` has explicit worker policies.
 
 ## Request flow
 
-1. JWT validation confirms the token signature, issuer, audience, lifetime, `sub`, `tenant_id`, and role.
-2. The application constructs a `DocumentAccessContext` from claims.
-3. User-level owner filtering is applied when the role is `User`.
-4. The runtime PostgreSQL transaction receives the tenant context.
-5. PostgreSQL RLS independently restricts documents, chunks, and jobs to the active tenant.
-6. Background ingestion uses the privileged connection and preserves the stored tenant through chunk and vector persistence.
+1. JWT validation confirms signature, issuer, audience, lifetime, `sub`, `tenant_id`, and role.
+2. PlatformAdmin either enters an explicit platform route/read path or is rejected by endpoint policy.
+3. Non-platform authorization loads tenant and membership under the token tenant's RLS context.
+4. The tenant must be active and membership active.
+5. JWT Admin claims must match durable Admin membership.
+6. `DocumentAccessContext` applies owner filtering for User scope.
+7. PostgreSQL RLS independently limits tenant rows.
+8. Background ingestion uses the independent privileged Worker and preserves stored tenant/owner identity.
 
 ## Failure behavior
 
-- Missing or invalid token: `401`.
-- Authenticated token missing `sub`, `tenant_id`, or a supported role: `403`.
-- Document identifier outside the caller's owner or tenant scope: `404`.
-- Runtime database operation without tenant session context: no visible rows.
-- Cross-tenant insert or update through the runtime role: rejected by PostgreSQL.
+- missing/invalid token: `401`;
+- missing required claims/role: `403`;
+- absent/removed membership, disabled tenant, or stale elevated role: `403`;
+- foreign document identifier: `404`;
+- runtime query without tenant context: no rows;
+- cross-tenant runtime write: PostgreSQL rejection;
+- final Admin removal/downgrade: `409 last_tenant_admin`;
+- invitation replay/expiry/revocation: controlled lifecycle error.
 
 ## Verification
 
 Automated tests cover:
 
 - user isolation across owners and tenants;
-- tenant administrator access across owners only inside one tenant;
-- platform administrator access across tenants;
-- missing tenant claim rejection;
-- direct PostgreSQL reads using two different tenant contexts;
-- direct cross-tenant insert rejection under the runtime role;
-- fail-closed runtime reads without tenant context;
-- authenticated Compose upload, processing, retrieval, and restart persistence;
-- RLS, `FORCE ROW LEVEL SECURITY`, policies, role flags, constraints, and indexes.
+- durable membership and Admin enforcement;
+- immediate denial after removal/deactivation;
+- final-Admin protection;
+- subject-bound, one-time invitation acceptance and digest-only storage;
+- PlatformAdmin cross-tenant reads through `document_platform`;
+- direct RLS reads under different tenant contexts;
+- direct cross-tenant lifecycle/document insert rejection;
+- fail-closed reads without tenant context;
+- forced RLS, policies, grants, roles, constraints, and indexes;
+- absence of the privileged connection from the API container;
+- independent Worker upload/index/restart persistence.
 
 ## Existing database migration
 
-PostgreSQL entrypoint scripts run only for a fresh volume. For an existing database:
+Entrypoint scripts run only for a fresh volume. Existing databases require:
 
-1. back up the database;
-2. review `zzzz-document-ownership.sql` and `zzzzz-tenant-isolation.sql`;
-3. supply strong runtime-role passwords as environment variables to `psql`;
-4. apply the scripts with `ON_ERROR_STOP` enabled;
-5. verify all existing rows have the intended tenant assignment;
-6. verify both runtime roles can connect;
-7. test runtime access with and without `app.tenant_id` before deploying the API.
+1. verified database and stored-file backups;
+2. review of ownership, tenant-isolation, audit, and lifecycle migrations;
+3. strong distinct runtime/platform/worker passwords;
+4. administrator application with `ON_ERROR_STOP`;
+5. review of legacy tenant/member mappings and active Admin coverage;
+6. verification of roles, grants, RLS policies, constraints, invitation indexes, and direct negative tests;
+7. separate API/Worker deployment identities before serving traffic.
 
-Do not automatically assign production data to `legacy-tenant` without an explicit migration and ownership review.
+Do not leave production data under automatic legacy mappings without explicit ownership review.
 
 ## Remaining boundaries
 
-This implementation does not provide:
+Not implemented:
 
-- tenant provisioning, invitations, membership lifecycle, or domain verification;
-- per-tenant quotas, retention, billing, or encryption keys;
-- centralized audit events;
-- external identity-provider tenant synchronization;
-- managed database or JWT secret rotation;
-- encrypted document storage;
-- independently deployed privileged worker infrastructure.
+- trusted invitation delivery or domain verification;
+- external IdP/SCIM synchronization;
+- key/session/token revocation lifecycle;
+- quotas, retention, export, deletion, billing, or tenant-specific encryption keys;
+- centralized secret management and managed service identity;
+- production network-policy and compliance approval.
 
-The project remains a reference implementation and is not approved for confidential or regulated data until those controls and an operational security review are complete.
+See [Managed Tenant Lifecycle](TENANT_LIFECYCLE.md), [Authentication and Authorization](AUTHENTICATION_AND_AUTHORIZATION.md), and [Security Policy](../SECURITY.md).
