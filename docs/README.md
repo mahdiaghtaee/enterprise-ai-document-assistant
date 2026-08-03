@@ -12,6 +12,7 @@
 
 - [Authentication and document authorization](AUTHENTICATION_AND_AUTHORIZATION.md)
 - [Database-enforced tenant isolation](TENANT_ISOLATION.md)
+- [Managed tenant lifecycle and worker trust boundary](TENANT_LIFECYCLE.md)
 - [Security policy](../SECURITY.md)
 
 ## Development and Operations
@@ -20,6 +21,7 @@
 - [Background ingestion](BACKGROUND_INGESTION.md)
 - [API examples](API_EXAMPLES.md)
 - [RAG ask endpoint](RAG_ASK_ENDPOINT.md)
+- [Retrieval evaluation](RETRIEVAL_EVALUATION.md)
 - [Demo scenario](DEMO_SCENARIO.md)
 - [Health and observability](HEALTH_AND_OBSERVABILITY.md)
 - [Release process](RELEASE_PROCESS.md)
