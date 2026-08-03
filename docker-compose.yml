@@ -7,8 +7,10 @@ services:
       - "${API_HOST_PORT:-5000}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ApplicationMode: Api
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_app;Password=${APP_DB_PASSWORD:-document-app-local}
-      ConnectionStrings__PostgresPrivileged: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_privileged;Password=${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
+      ConnectionStrings__PostgresPlatform: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_platform;Password=${PLATFORM_DB_PASSWORD:-document-platform-local}
+      TenantLifecycle__AllowUnmanagedClaimsFallback: "false"
       SemanticIndex__Provider: Postgres
       Redis__ConnectionString: redis:6379
       AiService__BaseUrl: http://ai-service:8000
@@ -26,11 +28,37 @@ services:
       AnswerGeneration__OpenAiCompatible__Model: ${ANSWER_PROVIDER_MODEL:-}
       AnswerGeneration__OpenAiCompatible__TimeoutSeconds: ${ANSWER_PROVIDER_TIMEOUT_SECONDS:-20}
       AnswerGeneration__OpenAiCompatible__MaxOutputTokens: ${ANSWER_PROVIDER_MAX_OUTPUT_TOKENS:-500}
+    volumes:
+      - document-storage:/app/storage/documents
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+      ai-service:
+        condition: service_started
+
+  document-worker:
+    build:
+      context: .
+      dockerfile: src/api-dotnet/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://127.0.0.1:8080
+      ApplicationMode: Worker
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_privileged;Password=${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
+      ConnectionStrings__PostgresPrivileged: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_privileged;Password=${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
+      SemanticIndex__Provider: Postgres
+      AiService__BaseUrl: http://ai-service:8000
+      OpenTelemetry__ServiceName: enterprise-document-assistant-worker
+      OpenTelemetry__ServiceVersion: ${SERVICE_VERSION:-dev}
+      OpenTelemetry__OtlpEndpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      AnswerGeneration__Provider: Deterministic
+    volumes:
+      - document-storage:/app/storage/documents
+    depends_on:
+      postgres:
+        condition: service_healthy
       ai-service:
         condition: service_started
 
@@ -61,6 +89,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-documents}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-documents}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-document-app-local}
+      PLATFORM_DB_PASSWORD: ${PLATFORM_DB_PASSWORD:-document-platform-local}
       PRIVILEGED_DB_PASSWORD: ${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
@@ -80,3 +109,4 @@ services:
 
 volumes:
   postgres-data:
+  document-storage:
