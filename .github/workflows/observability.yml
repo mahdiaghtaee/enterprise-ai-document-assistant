@@ -172,9 +172,11 @@ jobs:
             --header "Authorization: Bearer $platform_admin" \
             "http://localhost:5000/api/audit/events?limit=500" > /tmp/audit-platform.json
 
-          python3 - <<'PY'
+          python3 - "$invitation_token" <<'PY'
           import json
+          import sys
 
+          invitation_token = sys.argv[1]
           with open('/tmp/audit-a.json', encoding='utf-8') as response_file:
               tenant_a = json.load(response_file)
           with open('/tmp/audit-b.json', encoding='utf-8') as response_file:
