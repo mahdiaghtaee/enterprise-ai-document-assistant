@@ -8,6 +8,10 @@ Then run:
 
     python scripts/demo_flow.py
 
+The default flow provisions a managed demo tenant, creates a one-time invitation,
+accepts it as the demo user, uploads a document, and waits for the independent
+worker to index it. Set JWT_TOKEN to use an already provisioned external token.
+
 Optional environment variables:
 
     BASE_URL=http://localhost:5000
@@ -16,8 +20,10 @@ Optional environment variables:
     QUESTION="Who needs to approve vendor contracts?"
     TOP_K=3
     PROCESSING_TIMEOUT_SECONDS=60
-    JWT_TOKEN=<externally issued token>
+    JWT_TOKEN=<already provisioned external token>
+    DEMO_BOOTSTRAP_MANAGED_TENANT=true
     DEMO_USER_ID=demo-user
+    DEMO_ADMIN_USER_ID=demo-admin
     DEMO_TENANT_ID=demo-tenant
     DEMO_ROLE=User
 """
@@ -42,11 +48,32 @@ QUERY = os.getenv("QUERY", "vendor contract approval process")
 QUESTION = os.getenv("QUESTION", "Who needs to approve vendor contracts?")
 TOP_K = int(os.getenv("TOP_K", "3"))
 PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "60"))
-JWT_TOKEN = os.getenv("JWT_TOKEN") or create_token(
-    os.getenv("DEMO_USER_ID", "demo-user"),
-    os.getenv("DEMO_ROLE", "User"),
-    os.getenv("DEMO_TENANT_ID", "demo-tenant"),
-    PROCESSING_TIMEOUT_SECONDS + 300,
+DEMO_USER_ID = os.getenv("DEMO_USER_ID", "demo-user")
+DEMO_ADMIN_USER_ID = os.getenv("DEMO_ADMIN_USER_ID", "demo-admin")
+DEMO_TENANT_ID = os.getenv("DEMO_TENANT_ID", "demo-tenant")
+DEMO_ROLE = os.getenv("DEMO_ROLE", "User")
+EXTERNAL_JWT_TOKEN = os.getenv("JWT_TOKEN")
+BOOTSTRAP_MANAGED_TENANT = os.getenv(
+    "DEMO_BOOTSTRAP_MANAGED_TENANT",
+    "false" if EXTERNAL_JWT_TOKEN else "true",
+).lower() in {"1", "true", "yes"}
+JWT_TOKEN = EXTERNAL_JWT_TOKEN or create_token(
+    DEMO_USER_ID,
+    DEMO_ROLE,
+    DEMO_TENANT_ID,
+    PROCESSING_TIMEOUT_SECONDS + 600,
+)
+ADMIN_TOKEN = create_token(
+    DEMO_ADMIN_USER_ID,
+    "Admin",
+    DEMO_TENANT_ID,
+    PROCESSING_TIMEOUT_SECONDS + 600,
+)
+PLATFORM_TOKEN = create_token(
+    "demo-platform-admin",
+    "PlatformAdmin",
+    "platform",
+    PROCESSING_TIMEOUT_SECONDS + 600,
 )
 
 
@@ -54,25 +81,87 @@ def print_section(title: str) -> None:
     print(f"\n== {title} ==")
 
 
-def authorization_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {JWT_TOKEN}"}
+def authorization_headers(token: str = JWT_TOKEN) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
 
 
-def get_json(path: str) -> Any:
+def request_json(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    token: str = JWT_TOKEN,
+) -> Any:
     url = f"{BASE_URL}{path}"
-    req = request.Request(url, headers=authorization_headers())
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = authorization_headers(token)
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    req = request.Request(url, data=data, headers=headers, method=method)
     with request.urlopen(req, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+        body = response.read().decode("utf-8")
+        return json.loads(body) if body else None
 
 
-def post_json(path: str, payload: dict[str, Any]) -> Any:
-    url = f"{BASE_URL}{path}"
-    data = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json", **authorization_headers()}
-    req = request.Request(url, data=data, headers=headers, method="POST")
+def get_json(path: str, token: str = JWT_TOKEN) -> Any:
+    return request_json("GET", path, token=token)
 
-    with request.urlopen(req, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+
+def post_json(
+    path: str,
+    payload: dict[str, Any],
+    token: str = JWT_TOKEN,
+) -> Any:
+    return request_json("POST", path, payload=payload, token=token)
+
+
+def bootstrap_managed_tenant() -> None:
+    try:
+        get_json("/api/auth/me")
+        return
+    except HTTPError as exc:
+        if exc.code != 403:
+            raise
+
+    try:
+        post_json(
+            "/api/platform/tenants",
+            {
+                "tenantId": DEMO_TENANT_ID,
+                "displayName": "Local demo tenant",
+                "initialAdminUserId": DEMO_ADMIN_USER_ID,
+            },
+            token=PLATFORM_TOKEN,
+        )
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8")
+        if exc.code != 409 or "tenant_already_exists" not in body:
+            raise RuntimeError(f"Tenant provisioning failed: HTTP {exc.code}: {body}") from exc
+
+    invitations = get_json("/api/tenant/invitations", token=ADMIN_TOKEN)
+    for invitation in invitations:
+        if (
+            invitation.get("inviteeUserId") == DEMO_USER_ID
+            and invitation.get("status") == "Pending"
+        ):
+            post_json(
+                f"/api/tenant/invitations/{invitation['id']}/revoke",
+                {},
+                token=ADMIN_TOKEN,
+            )
+
+    invitation = post_json(
+        "/api/tenant/invitations",
+        {
+            "inviteeUserId": DEMO_USER_ID,
+            "role": DEMO_ROLE,
+            "lifetimeHours": 24,
+        },
+        token=ADMIN_TOKEN,
+    )
+    post_json(
+        "/api/tenant/invitations/accept",
+        {"token": invitation["token"]},
+    )
 
 
 def upload_file(path: str, file_path: Path) -> Any:
@@ -145,6 +234,11 @@ def main() -> int:
         print_section("Health check")
         print_json(get_json("/health"))
 
+        if BOOTSTRAP_MANAGED_TENANT:
+            print_section("Provision managed tenant and membership")
+            bootstrap_managed_tenant()
+            print("Managed tenant membership is active.")
+
         print_section("Authenticated principal")
         print_json(get_json("/api/auth/me"))
 
@@ -156,7 +250,7 @@ def main() -> int:
         if not status_path:
             raise RuntimeError("Upload response did not contain processingStatusUrl.")
 
-        print_section("Wait for background processing")
+        print_section("Wait for independent background worker")
         print_json(wait_for_processing(status_path))
 
         print_section("Semantic search")

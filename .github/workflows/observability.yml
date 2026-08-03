@@ -72,6 +72,7 @@ jobs:
 
           assert health['correlationId'] == 'ci-correlation-api', health
           assert health['status'] == 'ok', health
+          assert health['mode'] == 'Api', health
           PY
 
           curl --fail --silent --show-error --dump-header /tmp/ai-headers.txt \
@@ -107,9 +108,9 @@ jobs:
 
           test "$(query_database "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'audit_events';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_class WHERE relname = 'audit_events' AND relrowsecurity AND relforcerowsecurity;")" = "1"
-          test "$(query_database "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'audit_events' AND policyname IN ('tenant_audit_events_select', 'tenant_audit_events_insert', 'privileged_audit_events_select', 'privileged_audit_events_insert');")" = "4"
+          test "$(query_database "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'audit_events' AND policyname IN ('tenant_audit_events_select', 'tenant_audit_events_insert', 'privileged_audit_events_select', 'privileged_audit_events_insert', 'platform_audit_events', 'platform_insert_audit_events');")" = "6"
           test "$(query_database "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_audit_document_change', 'trg_audit_ingestion_job_change');")" = "2"
-          test "$(query_database "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'audit_events' AND grantee IN ('document_app', 'document_privileged') AND privilege_type IN ('UPDATE', 'DELETE');")" = "0"
+          test "$(query_database "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'audit_events' AND grantee IN ('document_app', 'document_platform', 'document_privileged') AND privilege_type IN ('UPDATE', 'DELETE');")" = "0"
 
       - name: Verify tenant-aware audit API
         shell: bash
@@ -122,6 +123,35 @@ jobs:
           platform_admin=$(python3 scripts/create_dev_token.py --user audit-platform --tenant platform --role PlatformAdmin)
           correlation_id="ci-audit-flow"
           sensitive_query="sensitive-query-must-not-be-audited"
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $platform_admin" \
+            --header "Content-Type: application/json" \
+            --data '{"tenantId":"audit-tenant-a","displayName":"Audit tenant A","initialAdminUserId":"audit-admin-a"}' \
+            http://localhost:5000/api/platform/tenants > /tmp/tenant-a.json
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $platform_admin" \
+            --header "Content-Type: application/json" \
+            --data '{"tenantId":"audit-tenant-b","displayName":"Audit tenant B","initialAdminUserId":"audit-admin-b"}' \
+            http://localhost:5000/api/platform/tenants > /tmp/tenant-b.json
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $tenant_a_admin" \
+            --header "Content-Type: application/json" \
+            --data '{"inviteeUserId":"audit-user","role":"User","lifetimeHours":24}' \
+            http://localhost:5000/api/tenant/invitations > /tmp/audit-invitation.json
+          invitation_token=$(python3 - <<'PY'
+          import json
+          with open('/tmp/audit-invitation.json', encoding='utf-8') as response_file:
+              invitation = json.load(response_file)
+          print(invitation['token'])
+          PY
+          )
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $tenant_a_user" \
+            --header "Content-Type: application/json" \
+            --data "{\"token\":\"$invitation_token\"}" \
+            http://localhost:5000/api/tenant/invitations/accept > /tmp/audit-membership.json
 
           curl --fail --silent --show-error \
             --header "Authorization: Bearer $tenant_a_user" \
@@ -142,9 +172,11 @@ jobs:
             --header "Authorization: Bearer $platform_admin" \
             "http://localhost:5000/api/audit/events?limit=500" > /tmp/audit-platform.json
 
-          python3 - <<'PY'
+          python3 - "$invitation_token" <<'PY'
           import json
+          import sys
 
+          invitation_token = sys.argv[1]
           with open('/tmp/audit-a.json', encoding='utf-8') as response_file:
               tenant_a = json.load(response_file)
           with open('/tmp/audit-b.json', encoding='utf-8') as response_file:
@@ -158,9 +190,13 @@ jobs:
               and event['tenantId'] == 'audit-tenant-a'
               for event in tenant_a
           ), tenant_a
+          assert any(event['eventType'] == 'tenant.invitation_created' for event in tenant_a), tenant_a
+          assert any(event['eventType'] == 'tenant.invitation_accepted' for event in tenant_a), tenant_a
           assert not any(event['correlationId'] == 'ci-audit-flow' for event in tenant_b), tenant_b
           assert any(event['correlationId'] == 'ci-audit-flow' for event in platform), platform
-          assert 'sensitive-query-must-not-be-audited' not in json.dumps(platform), platform
+          serialized = json.dumps(platform)
+          assert 'sensitive-query-must-not-be-audited' not in serialized, platform
+          assert invitation_token not in serialized, platform
           PY
 
           audit_count=$(docker compose exec -T postgres psql \

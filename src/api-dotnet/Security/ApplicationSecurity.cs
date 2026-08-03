@@ -16,6 +16,8 @@ public static class AuthorizationPolicies
 {
     public const string DocumentAccess = "DocumentAccess";
     public const string AdminOnly = "AdminOnly";
+    public const string TenantAdminOnly = "TenantAdminOnly";
+    public const string InvitationAcceptance = "InvitationAcceptance";
     public const string PlatformAdminOnly = "PlatformAdminOnly";
 }
 
@@ -93,13 +95,38 @@ public static class ApplicationSecurityServiceCollectionExtensions
                     .RequireAssertion(context =>
                         context.User.IsInRole(AppRoles.User) ||
                         context.User.IsInRole(AppRoles.Admin) ||
-                        context.User.IsInRole(AppRoles.PlatformAdmin)));
+                        context.User.IsInRole(AppRoles.PlatformAdmin))
+                    .AddRequirements(new ActiveTenantMembershipRequirement()));
             options.AddPolicy(
                 AuthorizationPolicies.AdminOnly,
-                policy => policy.RequireRole(AppRoles.Admin, AppRoles.PlatformAdmin));
+                policy => policy
+                    .RequireAuthenticatedUser()
+                    .RequireClaim(JwtRegisteredClaimNames.Sub)
+                    .RequireClaim(TenantClaims.TenantId)
+                    .RequireRole(AppRoles.Admin, AppRoles.PlatformAdmin)
+                    .AddRequirements(new ActiveTenantMembershipRequirement(AppRoles.Admin)));
+            options.AddPolicy(
+                AuthorizationPolicies.TenantAdminOnly,
+                policy => policy
+                    .RequireAuthenticatedUser()
+                    .RequireClaim(JwtRegisteredClaimNames.Sub)
+                    .RequireClaim(TenantClaims.TenantId)
+                    .RequireRole(AppRoles.Admin, AppRoles.PlatformAdmin)
+                    .AddRequirements(new ActiveTenantMembershipRequirement(AppRoles.Admin)));
+            options.AddPolicy(
+                AuthorizationPolicies.InvitationAcceptance,
+                policy => policy
+                    .RequireAuthenticatedUser()
+                    .RequireClaim(JwtRegisteredClaimNames.Sub)
+                    .RequireClaim(TenantClaims.TenantId)
+                    .RequireRole(AppRoles.User, AppRoles.Admin));
             options.AddPolicy(
                 AuthorizationPolicies.PlatformAdminOnly,
-                policy => policy.RequireRole(AppRoles.PlatformAdmin));
+                policy => policy
+                    .RequireAuthenticatedUser()
+                    .RequireClaim(JwtRegisteredClaimNames.Sub)
+                    .RequireClaim(TenantClaims.TenantId)
+                    .RequireRole(AppRoles.PlatformAdmin));
         });
 
         return services;

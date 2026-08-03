@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Claims;
+using EnterpriseDocumentAssistant.Api;
 using EnterpriseDocumentAssistant.Api.Ai;
 using EnterpriseDocumentAssistant.Api.Audit;
 using EnterpriseDocumentAssistant.Api.Documents;
@@ -9,6 +10,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+var hostingMode = ApplicationHostingMode.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(hostingMode);
 builder.AddApplicationObservability();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -46,8 +49,10 @@ builder.Services.AddCors(options =>
     });
 });
 builder.Services.AddApplicationSecurity(builder.Configuration);
+builder.Services.AddTenantLifecycle(builder.Configuration);
 builder.Services.AddSingleton<IDocumentRepository, PostgresDocumentRepository>();
 builder.Services.AddSingleton<IIngestionJobRepository, PostgresIngestionJobRepository>();
+builder.Services.AddDocumentProcessingStatusReader(builder.Configuration);
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
@@ -67,9 +72,19 @@ else
     builder.Services.AddSingleton<IAuditEventRepository, InMemoryAuditEventRepository>();
 }
 
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("PostgresPrivileged")) ||
-    !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres")))
+var hasTenantDatabase =
+    !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Postgres"));
+var hasPrivilegedDatabase =
+    !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("PostgresPrivileged"));
+
+if (hostingMode.RunsWorker && (hasPrivilegedDatabase || hasTenantDatabase))
 {
+    if (hostingMode.Name == ApplicationHostingModes.Worker && !hasPrivilegedDatabase)
+    {
+        throw new InvalidOperationException(
+            "Worker mode requires ConnectionStrings:PostgresPrivileged.");
+    }
+
     builder.Services.AddHostedService<DocumentIngestionWorker>();
 }
 
@@ -82,7 +97,7 @@ builder.Services.AddHttpClient<IAiIndexingClient, AiIndexingClient>(client =>
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() && hostingMode.RunsApi)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -90,12 +105,28 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("LocalWebUi");
 app.UseMiddleware<CorrelationIdMiddleware>();
+
+if (!hostingMode.RunsApi)
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api"))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        await next();
+    });
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", (ICorrelationContextAccessor correlation) => Results.Ok(new
 {
-    service = "document-api",
+    service = hostingMode.RunsApi ? "document-api" : "document-worker",
+    mode = hostingMode.Name,
     status = "ok",
     checkedAt = DateTimeOffset.UtcNow,
     correlationId = correlation.CorrelationId,
@@ -104,7 +135,8 @@ app.MapGet("/health", (ICorrelationContextAccessor correlation) => Results.Ok(ne
 
 app.MapGet("/health/live", (ICorrelationContextAccessor correlation) => Results.Ok(new
 {
-    service = "document-api",
+    service = hostingMode.RunsApi ? "document-api" : "document-worker",
+    mode = hostingMode.Name,
     status = "live",
     checkedAt = DateTimeOffset.UtcNow,
     correlationId = correlation.CorrelationId,
@@ -121,7 +153,8 @@ app.MapGet("/health/ready", async (
         cancellationToken);
     var payload = new
     {
-        service = "document-api",
+        service = hostingMode.RunsApi ? "document-api" : "document-worker",
+        mode = hostingMode.Name,
         status = report.Status.ToString(),
         checkedAt = DateTimeOffset.UtcNow,
         correlationId = correlation.CorrelationId,
@@ -141,16 +174,31 @@ app.MapGet("/health/ready", async (
         : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
-app.MapGet("/api/auth/me", (ClaimsPrincipal principal) =>
+app.MapTenantLifecycleEndpoints();
+
+app.MapGet("/api/auth/me", async (
+    ClaimsPrincipal principal,
+    ITenantLifecycleRepository tenantLifecycle,
+    CancellationToken cancellationToken) =>
 {
     var access = DocumentAccessContext.FromPrincipal(principal);
+    var managedAccess = access.CanAccessAllTenants
+        ? null
+        : await tenantLifecycle.EvaluateAccessAsync(
+            access.TenantId,
+            access.UserId,
+            cancellationToken);
     return Results.Ok(new
     {
         userId = access.UserId,
         tenantId = access.TenantId,
         roles = principal.FindAll("role").Select(claim => claim.Value).Distinct().ToArray(),
         canAccessAllTenants = access.CanAccessAllTenants,
-        canAccessAllDocumentsInTenant = access.CanAccessAllDocumentsInTenant
+        canAccessAllDocumentsInTenant = access.CanAccessAllDocumentsInTenant,
+        tenantManaged = managedAccess?.IsManaged,
+        tenantActive = managedAccess?.TenantActive,
+        membershipActive = managedAccess?.MembershipActive,
+        membershipRole = managedAccess?.MembershipRole
     });
 })
 .RequireAuthorization(AuthorizationPolicies.DocumentAccess);
@@ -324,7 +372,7 @@ documentApi.MapGet("/{documentId:guid}/processing-status", async (
     Guid documentId,
     ClaimsPrincipal principal,
     IDocumentRepository documentRepository,
-    IIngestionJobRepository jobRepository,
+    IDocumentProcessingStatusReader statusReader,
     IAuditEventRepository auditRepository,
     ICorrelationContextAccessor correlation,
     CancellationToken cancellationToken) =>
@@ -352,7 +400,10 @@ documentApi.MapGet("/{documentId:guid}/processing-status", async (
         return Results.NotFound(new { message = "No document was found." });
     }
 
-    var job = await jobRepository.GetLatestForDocumentAsync(documentId, cancellationToken);
+    var job = await statusReader.GetLatestForDocumentAsync(
+        documentId,
+        access,
+        cancellationToken);
     await auditRepository.AppendAsync(
         AuditEventWrite.Create(
             access,

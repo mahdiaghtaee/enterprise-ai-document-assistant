@@ -10,13 +10,14 @@ namespace EnterpriseDocumentAssistant.Api.Audit;
 public sealed class PostgresAuditEventRepository : IAuditEventRepository
 {
     private readonly string _tenantConnectionString;
-    private readonly string _privilegedConnectionString;
+    private readonly string _elevatedConnectionString;
 
     public PostgresAuditEventRepository(IConfiguration configuration)
     {
         _tenantConnectionString = configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
-        _privilegedConnectionString = configuration.GetConnectionString("PostgresPrivileged")
+        _elevatedConnectionString = configuration.GetConnectionString("PostgresPlatform")
+            ?? configuration.GetConnectionString("PostgresPrivileged")
             ?? _tenantConnectionString;
     }
 
@@ -40,7 +41,7 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
             """;
 
         await using var connection = new NpgsqlConnection(
-            bypassTenantIsolation ? _privilegedConnectionString : _tenantConnectionString);
+            bypassTenantIsolation ? _elevatedConnectionString : _tenantConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -89,7 +90,7 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
             """;
 
         await using var connection = new NpgsqlConnection(
-            query.BypassTenantIsolation ? _privilegedConnectionString : _tenantConnectionString);
+            query.BypassTenantIsolation ? _elevatedConnectionString : _tenantConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 

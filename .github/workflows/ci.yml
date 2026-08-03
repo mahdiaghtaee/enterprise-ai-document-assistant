@@ -85,7 +85,7 @@ jobs:
   containers:
     name: Compose build and health checks
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -125,6 +125,7 @@ jobs:
 
           wait_for_url "ASP.NET Core API" "http://localhost:5000/health"
           wait_for_url "FastAPI service" "http://localhost:8000/health"
+          test "$(docker compose ps --status running --services | grep -c '^document-worker$')" = "1"
 
       - name: Verify pgvector database schema
         shell: bash
@@ -146,7 +147,7 @@ jobs:
           test "$(query_database "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'document_chunks' AND a.attname = 'embedding' AND format_type(a.atttypid, a.atttypmod) = 'vector(8)';")" = "1"
           test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'document_chunks' AND indexname = 'ix_document_chunks_embedding_cosine';")" = "1"
 
-      - name: Verify ingestion and tenant-isolation schema
+      - name: Verify ingestion, tenant lifecycle, and trust-boundary schema
         shell: bash
         run: |
           set -euo pipefail
@@ -171,23 +172,88 @@ jobs:
           test "$(query_database "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'documents' AND column_name IN ('tenant_id', 'owner_id') AND is_nullable = 'NO';")" = "2"
           test "$(query_database "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('document_chunks', 'document_ingestion_jobs') AND column_name = 'tenant_id' AND is_nullable = 'NO';")" = "2"
           test "$(query_database "SELECT count(*) FROM pg_constraint WHERE conname IN ('ck_documents_tenant_id_not_blank', 'ck_document_chunks_tenant_id_not_blank', 'ck_document_ingestion_jobs_tenant_id_not_blank');")" = "3"
-          test "$(query_database "SELECT count(*) FROM pg_class WHERE relname IN ('documents', 'document_chunks', 'document_ingestion_jobs') AND relrowsecurity AND relforcerowsecurity;")" = "3"
-          test "$(query_database "SELECT count(*) FROM pg_roles WHERE rolname IN ('document_app', 'document_privileged') AND NOT rolsuper AND NOT rolbypassrls;")" = "2"
-          test "$(query_database "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('documents', 'document_chunks', 'document_ingestion_jobs') AND policyname IN ('tenant_documents', 'privileged_documents', 'tenant_document_chunks', 'privileged_document_chunks', 'tenant_document_ingestion_jobs', 'privileged_document_ingestion_jobs');")" = "6"
+          test "$(query_database "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('tenants', 'tenant_memberships', 'tenant_invitations');")" = "3"
+          test "$(query_database "SELECT count(*) FROM pg_class WHERE relname IN ('documents', 'document_chunks', 'document_ingestion_jobs', 'tenants', 'tenant_memberships', 'tenant_invitations') AND relrowsecurity AND relforcerowsecurity;")" = "6"
+          test "$(query_database "SELECT count(*) FROM pg_roles WHERE rolname IN ('document_app', 'document_platform', 'document_privileged') AND NOT rolsuper AND NOT rolbypassrls;")" = "3"
+          test "$(query_database "SELECT count(*) FROM pg_constraint WHERE conname IN ('ck_tenants_status', 'ck_tenant_memberships_role', 'ck_tenant_memberships_status', 'ck_tenant_invitations_token_hash', 'ck_tenant_invitations_status');")" = "5"
+          test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'tenant_invitations' AND indexname IN ('ux_tenant_invitations_token_hash', 'ux_tenant_invitations_pending_invitee');")" = "2"
+          test "$(query_database "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('tenants', 'tenant_memberships', 'tenant_invitations') AND policyname IN ('tenant_tenants', 'privileged_tenants', 'platform_tenants', 'tenant_memberships_policy', 'privileged_memberships', 'platform_memberships', 'tenant_invitations_policy', 'privileged_invitations', 'platform_invitations');")" = "9"
 
-      - name: Verify authenticated tenant isolation and persistence across restart
+          if docker compose exec -T document-api env | grep --quiet '^ConnectionStrings__PostgresPrivileged='; then
+            echo "document-api unexpectedly received the privileged worker connection"
+            exit 1
+          fi
+          docker compose exec -T document-api env | grep --quiet '^ConnectionStrings__PostgresPlatform='
+          docker compose exec -T document-worker env | grep --quiet '^ConnectionStrings__PostgresPrivileged='
+
+      - name: Verify managed lifecycle, tenant isolation, worker processing, and persistence
         shell: bash
         run: |
           set -euo pipefail
 
           tenant_a_user=$(python3 scripts/create_dev_token.py --user ci-user --tenant tenant-a --role User)
           tenant_a_other=$(python3 scripts/create_dev_token.py --user other-user --tenant tenant-a --role User)
+          stale_admin=$(python3 scripts/create_dev_token.py --user stale-admin --tenant tenant-a --role Admin)
           tenant_a_admin=$(python3 scripts/create_dev_token.py --user tenant-a-admin --tenant tenant-a --role Admin)
           tenant_b_admin=$(python3 scripts/create_dev_token.py --user tenant-b-admin --tenant tenant-b --role Admin)
           platform_admin=$(python3 scripts/create_dev_token.py --user platform-admin --tenant platform --role PlatformAdmin)
           export tenant_a_user
 
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:5000/api/documents)" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $tenant_a_user" http://localhost:5000/api/documents)" = "403"
+
+          provision_tenant() {
+            local tenant_id="$1"
+            local display_name="$2"
+            local admin_user_id="$3"
+
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $platform_admin" \
+              --header "Content-Type: application/json" \
+              --data "{\"tenantId\":\"$tenant_id\",\"displayName\":\"$display_name\",\"initialAdminUserId\":\"$admin_user_id\"}" \
+              http://localhost:5000/api/platform/tenants > "/tmp/provision-$tenant_id.json"
+          }
+
+          invite_and_accept() {
+            local admin_token="$1"
+            local member_token="$2"
+            local user_id="$3"
+            local role="$4"
+            local output_name="$5"
+
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $admin_token" \
+              --header "Content-Type: application/json" \
+              --data "{\"inviteeUserId\":\"$user_id\",\"role\":\"$role\",\"lifetimeHours\":24}" \
+              http://localhost:5000/api/tenant/invitations > "/tmp/invite-$output_name.json"
+
+            python3 - "/tmp/invite-$output_name.json" > "/tmp/token-$output_name.txt" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding='utf-8') as response_file:
+              invitation = json.load(response_file)
+          assert invitation['status'] == 'Pending', invitation
+          assert invitation['token'], invitation
+          print(invitation['token'])
+          PY
+
+            local invitation_token
+            invitation_token=$(cat "/tmp/token-$output_name.txt")
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $member_token" \
+              --header "Content-Type: application/json" \
+              --data "{\"token\":\"$invitation_token\"}" \
+              http://localhost:5000/api/tenant/invitations/accept > "/tmp/accept-$output_name.json"
+          }
+
+          provision_tenant "tenant-a" "Tenant A" "tenant-a-admin"
+          provision_tenant "tenant-b" "Tenant B" "tenant-b-admin"
+          invite_and_accept "$tenant_a_admin" "$tenant_a_user" "ci-user" "User" "ci-user"
+          invite_and_accept "$tenant_a_admin" "$tenant_a_other" "other-user" "User" "other-user"
+          invite_and_accept "$tenant_a_admin" "$stale_admin" "stale-admin" "User" "stale-admin"
+
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $stale_admin" http://localhost:5000/api/tenant/members)" = "403"
 
           curl --fail --silent --show-error \
             --header "Authorization: Bearer $tenant_a_user" \
@@ -201,7 +267,10 @@ jobs:
 
           assert principal['userId'] == 'ci-user', principal
           assert principal['tenantId'] == 'tenant-a', principal
-          assert principal['canAccessAllTenants'] is False, principal
+          assert principal['tenantManaged'] is True, principal
+          assert principal['tenantActive'] is True, principal
+          assert principal['membershipActive'] is True, principal
+          assert principal['membershipRole'] == 'User', principal
           PY
 
           curl --fail --silent --show-error \
@@ -237,7 +306,7 @@ jobs:
 
               time.sleep(1)
           else:
-              raise AssertionError('Background ingestion did not complete within 60 seconds.')
+              raise AssertionError('Independent background ingestion did not complete within 60 seconds.')
           PY
 
           assert_search_result() {
@@ -272,7 +341,31 @@ jobs:
           assert_search_result "$tenant_b_admin" 0
           assert_search_result "$platform_admin" 1
 
-          docker compose restart document-api
+          curl --fail --silent --show-error \
+            --request DELETE \
+            --header "Authorization: Bearer $tenant_a_admin" \
+            http://localhost:5000/api/tenant/members/other-user > /tmp/removed-member.json
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $tenant_a_other" http://localhost:5000/api/documents)" = "403"
+
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $platform_admin" \
+            --header "Content-Type: application/json" \
+            --data '{"status":"Disabled"}' \
+            http://localhost:5000/api/platform/tenants/tenant-b/status > /tmp/disabled-tenant.json
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $tenant_b_admin" http://localhost:5000/api/documents)" = "403"
+
+          invitation_token=$(cat /tmp/token-ci-user.txt)
+          plaintext_token_count=$(docker compose exec -T postgres psql \
+            --username "${POSTGRES_USER:-documents}" \
+            --dbname "${POSTGRES_DB:-documents}" \
+            --no-psqlrc \
+            --tuples-only \
+            --no-align \
+            --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM tenant_invitations WHERE token_hash = '$invitation_token';")
+          test "$plaintext_token_count" = "0"
+
+          docker compose restart document-api document-worker
 
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error http://localhost:5000/health > /dev/null; then
@@ -288,10 +381,10 @@ jobs:
           done
 
           assert_search_result "$tenant_a_user" 1
-          assert_search_result "$tenant_a_other" 0
           assert_search_result "$tenant_a_admin" 1
-          assert_search_result "$tenant_b_admin" 0
           assert_search_result "$platform_admin" 1
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $tenant_a_other" http://localhost:5000/api/documents)" = "403"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $tenant_b_admin" http://localhost:5000/api/documents)" = "403"
 
           chunk_count=$(docker compose exec -T postgres psql \
             --username "${POSTGRES_USER:-documents}" \
@@ -301,7 +394,6 @@ jobs:
             --no-align \
             --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM document_chunks WHERE tenant_id = 'tenant-a';")
-
           owned_document_count=$(docker compose exec -T postgres psql \
             --username "${POSTGRES_USER:-documents}" \
             --dbname "${POSTGRES_DB:-documents}" \
@@ -310,7 +402,6 @@ jobs:
             --no-align \
             --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM documents WHERE tenant_id = 'tenant-a' AND owner_id = 'ci-user';")
-
           completed_job_count=$(docker compose exec -T postgres psql \
             --username "${POSTGRES_USER:-documents}" \
             --dbname "${POSTGRES_DB:-documents}" \
@@ -319,10 +410,19 @@ jobs:
             --no-align \
             --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM document_ingestion_jobs WHERE tenant_id = 'tenant-a' AND status = 'Completed';")
+          active_membership_count=$(docker compose exec -T postgres psql \
+            --username "${POSTGRES_USER:-documents}" \
+            --dbname "${POSTGRES_DB:-documents}" \
+            --no-psqlrc \
+            --tuples-only \
+            --no-align \
+            --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM tenant_memberships WHERE tenant_id = 'tenant-a' AND user_id = 'ci-user' AND status = 'Active';")
 
           test "$chunk_count" -gt 0
           test "$owned_document_count" -eq 1
           test "$completed_job_count" -gt 0
+          test "$active_membership_count" -eq 1
 
       - name: Show container status and logs on failure
         if: failure()

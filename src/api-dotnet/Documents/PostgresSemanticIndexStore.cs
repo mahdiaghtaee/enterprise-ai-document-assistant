@@ -8,13 +8,14 @@ namespace EnterpriseDocumentAssistant.Api.Documents;
 public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
 {
     private readonly string _tenantConnectionString;
-    private readonly string _privilegedConnectionString;
+    private readonly string _elevatedConnectionString;
 
     public PostgresSemanticIndexStore(IConfiguration configuration)
     {
         _tenantConnectionString = configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
-        _privilegedConnectionString = configuration.GetConnectionString("PostgresPrivileged")
+        _elevatedConnectionString = configuration.GetConnectionString("PostgresPlatform")
+            ?? configuration.GetConnectionString("PostgresPrivileged")
             ?? _tenantConnectionString;
     }
 
@@ -49,7 +50,7 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
                 updated_at = CURRENT_TIMESTAMP;
             """;
 
-        await using var connection = new NpgsqlConnection(_privilegedConnectionString);
+        await using var connection = new NpgsqlConnection(_elevatedConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -104,7 +105,7 @@ public sealed class PostgresSemanticIndexStore : ISemanticIndexStore
             """;
 
         var connectionString = request.BypassTenantIsolation
-            ? _privilegedConnectionString
+            ? _elevatedConnectionString
             : _tenantConnectionString;
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);

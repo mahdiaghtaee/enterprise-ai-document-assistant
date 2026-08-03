@@ -8,77 +8,74 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Managed `tenants`, `tenant_memberships`, and `tenant_invitations` storage protected by forced PostgreSQL Row-Level Security.
+- PlatformAdmin APIs for tenant provisioning, deactivation, and reactivation.
+- Atomic creation of a tenant and its initial Admin membership.
+- Durable active-tenant and active-membership authorization for document, audit, and tenant-administration operations.
+- Durable Admin enforcement that rejects stale elevated JWT claims when the persisted membership is `User`.
+- Member listing, role changes, removal, and transactional protection against removing or downgrading the final active tenant Admin.
+- One-time, expiry-aware, revocable invitation tokens bound to the authenticated JWT subject and tenant.
+- Cryptographically random invitation secrets with SHA-256 digest-only persistence and plaintext returned once.
+- A narrow `document_platform` PostgreSQL role for lifecycle management, cross-tenant reads, and audit insertion.
+- `ApplicationMode=Api`, `ApplicationMode=Worker`, and compatibility `ApplicationMode=Combined` hosting modes.
+- An independent Docker Compose ingestion worker with no published host port and shared named-volume document storage.
+- Lifecycle audit events for provisioning, tenant status, membership role/removal, and invitation creation/acceptance/revocation.
+- Direct PostgreSQL lifecycle tests for digest-only invitation storage, one-time acceptance, final-Admin protection, forced RLS, and cross-tenant write rejection.
+- Compose verification for provisioning, invitation acceptance, stale-role denial, member removal, tenant deactivation, independent worker processing, credential separation, and restart persistence.
+- A self-provisioning managed-tenant demo flow.
 - Fail-closed JWT bearer authentication with required subject, tenant, and role validation.
-- Tenant-scoped `User` and `Admin` policies plus explicit cross-tenant `PlatformAdmin` access.
 - Immutable document ownership and tenant identity derived from authenticated JWT claims.
 - Forced PostgreSQL Row-Level Security for documents, chunks, ingestion jobs, and audit events.
-- Separate non-superuser tenant-runtime and privileged PostgreSQL roles.
 - Validated `X-Correlation-ID` generation, response echo, log scoping, and service propagation.
 - Structured JSON console logging with trace, span, correlation, document, tenant, and ingestion-job context.
-- OpenTelemetry tracing for ASP.NET Core HTTP, HttpClient, FastAPI, Search, Ask, upload, and background ingestion.
-- OpenTelemetry metrics for authorization denials, uploads, retrieval duration/results, ingestion completion, retries, failures, and recovery.
-- Optional OTLP/HTTP export for traces, metrics, and ASP.NET Core logs without requiring a collector for local development.
+- OpenTelemetry tracing and metrics for ASP.NET Core HTTP, HttpClient, FastAPI, Search, Ask, provider generation, upload, and background ingestion.
+- Optional OTLP/HTTP export without requiring a collector for local development.
 - ASP.NET Core liveness and dependency-aware readiness endpoints.
 - Append-only PostgreSQL `audit_events` storage with tenant RLS and Admin/PlatformAdmin read policies.
 - Atomic database-trigger audit for document and ingestion-job creation and status changes.
-- Correlated application audit for document listing, metadata creation, upload, status, Search, Ask, and audit access.
-- Negative tests for correlation validation, tenant audit isolation, PlatformAdmin visibility, append-only permissions, and sensitive-query exclusion.
-- A dedicated audit and observability integration workflow.
-- A versioned tenant-safe retrieval corpus with exact, ambiguous, vocabulary-mismatch, and empty-query categories.
-- A provider-free .NET retrieval evaluation command using the existing deterministic embedding and semantic-index implementations.
-- Machine-readable Precision@K, Recall@K, MRR, empty-query accuracy, mean latency, and p95 latency reporting.
-- A committed observed retrieval baseline with explicit quality and latency regression thresholds.
-- Dedicated retrieval metric, input-validation, baseline-comparison, and empty-query tests.
-- A read-only retrieval-quality workflow that retains the JSON report as a fourteen-day artifact.
-- `IAnswerGenerator` and `IGroundedAnswerService` abstractions with a deterministic local default.
-- An optional OpenAI-compatible Chat Completions grounded-answer provider.
-- Fail-closed provider validation for HTTPS endpoint, API key, model, timeout, and output-token limits.
-- Source-count, context-character, and question-length boundaries before external provider calls.
-- Prompt instructions that treat retrieved source content as untrusted data.
-- Mandatory request-local `[S#]` citations and rejection of uncited or out-of-range provider answers.
-- Explicit insufficient-evidence outcomes for missing, low-confidence, conflicting, and provider-declined evidence.
-- Controlled timeout, network, rate-limit, credential, malformed-response, empty-response, and ungrounded-response mappings.
-- Provider-generation status, duration, controlled-failure, and token-usage metrics.
-- A versioned eight-case answer-quality dataset with strict grounding, insufficient-evidence, provider-call, and rejection thresholds.
-- A credential-free answer-evaluation command and read-only workflow with a fourteen-day JSON artifact.
-- Unit and endpoint tests for deterministic answers, prompt boundaries, provider protocol, source citations, and controlled provider failures.
+- Correlated application audit for document, answer, lifecycle, and audit operations.
+- A versioned tenant-safe retrieval corpus, provider-free evaluation command, machine-readable metrics, and regression thresholds.
+- `IAnswerGenerator` and `IGroundedAnswerService` abstractions with deterministic local and optional OpenAI-compatible implementations.
+- Evidence-strength, conflict, context-size, timeout, output-token, and citation validation gates.
+- Controlled insufficient-evidence and provider-failure responses that preserve independent source metadata.
+- A credential-free eight-case grounded-answer evaluation baseline and retained CI report.
 
 ### Changed
 
-- `Admin` remains tenant scoped; only `PlatformAdmin` uses the privileged cross-tenant database path.
-- Every API and FastAPI response carries a validated correlation identifier.
-- Search and Ask audit metadata records only bounded operational values; query, question, source, answer, response-body, and credential content are excluded.
-- Docker Compose accepts optional OpenTelemetry and answer-provider configuration while retaining collector-free and credential-free defaults.
-- Health behavior is separated into backward-compatible process health, liveness, and dependency readiness.
-- Retrieval changes can be compared against a reproducible baseline before embedding, ranking, chunking, or provider implementations change.
-- Ask keeps the original question, answer, source count, and source fields while adding answer status, provider, model, grounding, and reason metadata.
-- Retrieved source metadata is constructed independently from provider output and remains available in controlled provider-failure responses.
-- The default Ask answer now includes a request-local source citation and uses the same grounding gate as the optional provider path.
-- Documentation now treats tenant isolation, audit/observability, retrieval evaluation, and grounded-answer provider foundations as delivered while retaining explicit production limitations.
+- JWT claims authenticate the requested subject and tenant, while durable tenant/membership state is authoritative for non-platform authorization.
+- Membership removal, Admin downgrade, and tenant deactivation affect the next protected request without waiting for JWT expiration.
+- The public API no longer receives `ConnectionStrings:PostgresPrivileged`; only the independent Worker receives the full ingestion credential.
+- PlatformAdmin cross-tenant reads and lifecycle mutations use the narrower `document_platform` database role.
+- Docker Compose runs separate `document-api` and `document-worker` services sharing a named document-storage volume.
+- Processing-status reads use tenant-RLS or platform-read paths rather than the worker repository credential.
+- The local demo provisions a tenant and accepts a one-time invitation before document operations.
+- `Admin` remains tenant scoped; only `PlatformAdmin` uses the explicit cross-tenant path.
+- Search, Ask, and lifecycle audit metadata stores bounded operational values while excluding query, question, source, answer, invitation-secret, response-body, and credential content.
+- Ask keeps its original response fields while adding answer status, provider, model, grounding, and reason metadata.
+- Documentation now treats managed tenant lifecycle, split-worker trust boundaries, tenant isolation, audit/observability, retrieval evaluation, and grounded-answer providers as delivered foundations.
 
 ### Migration notes
 
-- Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql`, `infra/postgres/init/zzzzz-tenant-isolation.sql`, and `infra/postgres/init/zzzzzz-audit-observability.sql` automatically.
-- Existing PostgreSQL volumes require a reviewed manual application of the idempotent migrations after backup because entrypoint scripts do not rerun.
+- Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql`, `infra/postgres/init/zzzzz-tenant-isolation.sql`, `infra/postgres/init/zzzzzz-audit-observability.sql`, and `infra/postgres/init/zzzzzzz-tenant-lifecycle.sql` automatically.
+- Existing PostgreSQL volumes require reviewed manual application after verified database and stored-file backups because entrypoint scripts do not rerun.
+- Existing tenant/owner data is mapped to explicit lifecycle records; every generated mapping and active Admin assignment must be reviewed before serving traffic.
+- Deployments must provision and rotate distinct `document_app`, `document_platform`, and `document_privileged` credentials.
+- The API and Worker should be deployed as separate identities; the privileged worker connection must not be copied into the public API environment.
 - Application roles require `SELECT` and `INSERT`, but not `UPDATE` or `DELETE`, on `audit_events`.
-- Deployments may leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty or configure a trusted OTLP/HTTP collector endpoint.
-- Existing documents remain assigned to `legacy-system` and `legacy-tenant` until mapped to production identities.
-- Retrieval and answer evaluation add no database migration and run without PostgreSQL or external credentials.
 - Existing deployments remain on deterministic answer generation unless `ANSWER_GENERATION_PROVIDER=OpenAiCompatible` is selected explicitly.
-- External-provider deployments must supply endpoint, API key, and model through trusted configuration and must review provider data-handling terms before activation.
+- External-provider deployments must supply endpoint, API key, and model through trusted configuration and review provider data-handling terms before activation.
 
 ### Known limitations
 
-- Tenant provisioning, memberships, invitations, domain verification, quotas, retention, and deletion workflows are not implemented.
-- The reference Compose deployment loads privileged worker/platform credentials into the API process; production should separate that trust boundary.
-- A production telemetry backend, dashboards, alerts, SLOs, audit retention, legal hold, and tamper-evident archival are not bundled.
-- Token revocation, managed key rotation, encrypted storage, malware scanning, and centralized secret management remain absent.
-- The repository signing key and token helper are for local development only.
+- Trusted invitation email/SMS delivery, domain verification, and recipient identity proofing are not implemented.
+- External IdP/SCIM synchronization, managed signing-key rotation, identity-provider session revocation, and device controls remain absent.
+- Per-tenant quotas, retention, export, deletion, legal hold, and organization recovery workflows are not implemented.
+- A production telemetry backend, dashboards, alerts, SLOs, audit retention, and tamper-evident archival are not bundled.
+- Encrypted document storage, malware scanning, and centralized secret management remain absent.
+- The repository signing key, PlatformAdmin tokens, and token helper are for local development only.
 - The retrieval and answer datasets are small and synthetic; they detect controlled regressions but do not establish production factual accuracy.
-- The current vocabulary-mismatch retrieval case is intentionally a miss at `K = 3`, and the ambiguous case retrieves only one of two relevant chunks.
-- The OpenAI-compatible path is verified with in-memory protocol doubles and does not bundle, call, or endorse a real provider.
-- External provider retention, residency, training, subprocessors, cost, and contractual controls require deployment-specific review.
-- The project remains unsuitable for confidential or regulated documents without additional operational and compliance controls.
+- The optional provider path verifies protocol and grounding controls without a production provider account or factual-accuracy claim.
+- The project remains unsuitable for confidential or regulated documents without additional identity, invitation-delivery, encryption, retention, secret-management, and operational controls.
 
 ## 0.3.0 - 2026-07-27
 
@@ -98,26 +95,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- `POST /api/documents/upload` now returns `202 Accepted` after durable enqueue instead of performing extraction and indexing synchronously.
-- Document list status now reflects `uploaded`, `processing`, `retry-pending`, `indexed`, or `failed` processing progress.
-- The Web UI and demo script now poll document processing state before search or ask operations.
+- `POST /api/documents/upload` returns `202 Accepted` after durable enqueue instead of performing extraction and indexing synchronously.
+- Document list status reflects `uploaded`, `processing`, `retry-pending`, `indexed`, or `failed` processing progress.
+- The Web UI and demo script poll document processing state before search or ask operations.
 - Docker Compose CI verifies asynchronous completion, persistence across API restart, and completed job state.
 - Local uploaded files are removed when atomic database enqueue fails.
-- Updated the README, architecture, case study, roadmap, API examples, local-development guide, ingestion documentation, and PostgreSQL schema comments to match the active worker implementation.
 
 ### Migration notes
 
 - Existing PostgreSQL volumes from v0.2.0 already contain the required ingestion-job schema.
 - Environments older than v0.2.0 must back up required data and apply the reviewed idempotent schema scripts or recreate only disposable local volumes.
-- Upload clients must now poll the returned `processingStatusUrl` and wait for `Completed` before expecting the new document in retrieval results.
+- Upload clients must poll the returned `processingStatusUrl` and wait for `Completed` before expecting the new document in retrieval results.
 
 ### Known limitations
 
 - Only the supported local plain-text extraction path is implemented.
-- Authentication, authorization, document ownership, tenant isolation, audit logging, and production secret management are not implemented.
 - The deterministic embedding generator is intended for reproducible development and evaluation, not production retrieval quality.
 - The FastAPI service remains an integration boundary and does not perform extraction, embeddings, retrieval, or answer generation.
-- The PostgreSQL queue does not yet provide advanced scheduling or an independently deployed worker fleet.
 - Docker Compose uses development defaults and exposed local ports.
 
 ## 0.2.0 - 2026-07-20
@@ -126,51 +120,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - Configurable local ports and PostgreSQL development credentials through `.env`.
 - Expanded local-development and troubleshooting documentation.
-- Explicit documentation of the current .NET document pipeline and the FastAPI service boundary.
 - Dependabot update configuration for GitHub Actions, NuGet, pip, and Docker.
 - CodeQL analysis for C# and Python.
 - CODEOWNERS coverage for the repository and security-sensitive paths.
-- FastAPI endpoint tests for health, indexing responses, and request validation.
-- Ruff linting and formatting checks for Python code.
-- Runtime Docker Compose checks for the ASP.NET Core and FastAPI health endpoints.
-- Cobertura-format .NET coverage collection and retained CI artifacts.
-- CI coverage floors of 60% line coverage and 50% branch coverage.
-- Dependency Review for pull requests targeting `main`.
-- An idempotent pgvector initialization script with a `document_chunks` table, fixed `vector(8)` embeddings, and an HNSW cosine-distance index.
-- A PostgreSQL implementation of `ISemanticIndexStore` with transactional upserts and pgvector cosine search.
-- Configuration-driven selection between `InMemory` and `Postgres` semantic-index providers.
-- Provider validation tests for dimensions, finite values, defaults, and unsupported configuration.
-- Compose CI coverage that uploads, searches, restarts the API, searches again, and verifies persisted chunk rows.
-- A durable `document_ingestion_jobs` schema with constrained processing states, bounded attempts, lifecycle timestamps, and controlled failure fields.
-- Partial PostgreSQL indexes for one active job per document and ordered pending-job claiming.
-- ASP.NET Core ingestion-job state models for `Pending`, `Processing`, `Completed`, and `Failed`.
-- Compose CI checks for ingestion-job defaults, constraints, and claim indexes.
+- FastAPI endpoint tests, Ruff validation, Docker Compose health checks, and .NET coverage artifacts/floors.
+- An idempotent pgvector schema with `vector(8)` embeddings and an HNSW cosine index.
+- PostgreSQL `ISemanticIndexStore` with transactional upserts and pgvector cosine search.
+- Configuration-driven in-memory/PostgreSQL semantic-index selection.
+- A durable `document_ingestion_jobs` schema with constrained states, attempts, timestamps, and claim indexes.
 
 ### Changed
 
-- Clarified that extraction, chunking, deterministic embeddings, semantic retrieval, and answer construction currently run in the ASP.NET Core API.
-- Replaced the stale feature roadmap with implementation-based milestones.
-- Moved resume, interview, social-post, and repository-visibility notes out of the software repository.
-- Restricted GitHub Actions workflow permissions to read-only repository contents unless a workflow requires more.
-- Updated GitHub Actions to current Node 24-compatible major versions.
-- Split CI into independent .NET, Python, and container validation jobs.
-- Replaced the local `postgres:16-alpine` image with the pinned `pgvector/pgvector:0.8.5-pg16` image while keeping PostgreSQL 16.
-- Aligned the pgvector column dimension with the eight-dimensional deterministic embedding generator.
-- Configured Docker Compose to use persistent PostgreSQL semantic indexing while retaining the in-memory default for isolated tests.
+- Documentation was aligned with the implemented .NET pipeline and FastAPI boundary.
+- CI was split into independent .NET, Python, and container validation jobs.
+- PostgreSQL moved to the pinned `pgvector/pgvector:0.8.5-pg16` image.
+- The pgvector dimension was aligned with the eight-dimensional deterministic embedding generator.
+- Docker Compose used persistent PostgreSQL semantic indexing while isolated tests retained in-memory defaults.
 
 ### Migration notes
 
 - Fresh Docker Compose volumes initialize pgvector, `document_chunks`, and `document_ingestion_jobs` automatically.
-- Existing PostgreSQL volumes do not rerun entrypoint initialization scripts. Back up required data, then apply the idempotent SQL scripts manually or recreate only disposable local volumes.
-- The current deterministic embedding generator emits eight-dimensional vectors; changing the embedding dimension requires an explicit database migration.
+- Existing PostgreSQL volumes do not rerun entrypoint initialization scripts. Back up required data, then apply reviewed scripts manually or recreate only disposable local volumes.
+- Changing embedding dimensions requires an explicit database migration.
 
 ### Known limitations
 
-- Document extraction, chunking, embedding generation, and index writes still run synchronously inside the upload request.
-- The durable ingestion-job schema is present, but atomic enqueue, background worker execution, retry processing, and the public status endpoint are not implemented yet.
 - The deterministic embedding generator is intended for reproducible development and evaluation, not production retrieval quality.
-- The FastAPI service remains an integration boundary and does not perform extraction, embeddings, retrieval, or answer generation.
-- Authentication, authorization, tenant isolation, audit logging, and production secret management are not implemented.
+- The FastAPI service remains an integration boundary rather than the active document pipeline.
 - Docker Compose uses development defaults and exposed local ports.
 
 ## 0.1.0 - 2026-07-10
@@ -178,25 +154,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - ASP.NET Core REST API with Swagger/OpenAPI and health checks.
-- Python FastAPI service with health and indexing-boundary endpoints.
+- Python FastAPI health and indexing-boundary endpoints.
 - Docker Compose environment with PostgreSQL, Redis, Web UI, API, and FastAPI services.
-- Local document upload and storage workflow.
-- PostgreSQL-backed document metadata repository.
-- Plain-text extraction and fixed-size chunking.
-- Deterministic local embedding generation.
-- In-memory semantic index with similarity-based ranking.
-- Semantic search endpoint with source metadata.
-- Deterministic source-aware ask endpoint.
-- Web UI for health, upload, listing, search, questions, and source inspection.
-- Sample documents and an end-to-end demo script.
-- API integration tests.
-- GitHub Actions validation for tests, Docker Compose configuration, and container builds.
-- Architecture, security, API, local-development, and operations documentation.
+- Local document upload and PostgreSQL-backed metadata.
+- Plain-text extraction, fixed-size chunking, deterministic embeddings, and in-memory semantic ranking.
+- Semantic search and deterministic source-aware Ask endpoints.
+- Web UI, sample documents, demo script, integration tests, and initial CI/documentation.
 
 ### Known limitations
 
-- Semantic-index records were not durable across API restarts in version 0.1.0.
-- Document processing is synchronous.
-- The FastAPI service does not yet perform extraction, embeddings, retrieval, or answer generation.
-- Authentication, authorization, tenant isolation, and audit logging are not implemented.
-- Docker Compose uses development defaults and exposed local ports.
+- Semantic-index records were not durable across API restarts.
+- Document processing was synchronous.
+- Authentication, authorization, tenant isolation, and audit logging were not implemented in this version.
