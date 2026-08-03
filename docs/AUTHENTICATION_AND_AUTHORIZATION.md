@@ -1,27 +1,44 @@
 # Authentication and Document Authorization
 
-The ASP.NET Core document API requires a signed JWT bearer token for every document operation. The health endpoint remains public so orchestrators can determine whether the process is running.
+The ASP.NET Core API requires a signed JWT bearer token for protected operations. Health endpoints remain public for orchestration.
 
-## Security model
+JWT validation authenticates the subject and requested tenant. Durable tenant and membership state determines whether non-platform access is still authorized.
+
+## JWT requirements
 
 A valid token must contain:
 
 - `sub`: stable user identifier used as the document owner;
-- `tenant_id`: stable organization or workspace identifier;
+- `tenant_id`: stable organization identifier;
 - `role`: `User`, `Admin`, or `PlatformAdmin`;
 - `iss`, `aud`, `nbf`, and `exp` values accepted by the configured JWT validation parameters.
 
+Requests without a valid token return `401`. Authenticated tokens missing required claims or a supported role return `403`.
+
+## Durable authorization requirements
+
+For `User` and `Admin`, a protected request also requires:
+
+- a matching record in `tenants`;
+- tenant status `Active`;
+- an `Active` membership for `sub` in `tenant_id`;
+- durable membership role `Admin` for tenant-admin or tenant-wide owner access.
+
 Role behavior:
 
-- `User` can access only documents whose `owner_id` matches `sub` and whose `tenant_id` matches the token;
-- `Admin` can access all document owners inside the token tenant, but cannot cross tenants;
-- `PlatformAdmin` can access documents across tenants through the explicit privileged database path.
+- `User`: active membership plus `tenant_id` and `owner_id = sub` scope;
+- `Admin`: active durable Admin membership, all owners inside one active tenant;
+- `PlatformAdmin`: explicit platform APIs and narrow cross-tenant database path; no tenant membership required.
 
-Requests without a valid token return `401`. Authenticated tokens missing `sub`, `tenant_id`, or a supported role fail the document-access policy with `403`.
+A JWT that claims `Admin` while durable membership is `User` is rejected. The client must obtain a refreshed correctly scoped token. This prevents stale elevated claims from gaining tenant-wide access.
 
-Foreign document identifiers are returned as `404` outside the caller's authorized owner or tenant scope. This avoids confirming whether another user's or organization's document exists.
+Removing a membership or disabling a tenant blocks the next protected request without waiting for token expiration.
+
+Foreign document identifiers return `404` outside authorized owner/tenant scope so the API does not confirm another user's or organization's document exists.
 
 ## Protected endpoints
+
+Document access policy:
 
 - `GET /api/documents`
 - `POST /api/documents`
@@ -31,35 +48,46 @@ Foreign document identifiers are returned as `404` outside the caller's authoriz
 - `POST /api/documents/ask`
 - `GET /api/auth/me`
 
-`GET /health` is intentionally anonymous.
+Durable tenant Admin policy:
+
+- `GET /api/tenant/members`
+- `PUT /api/tenant/members/{userId}/role`
+- `DELETE /api/tenant/members/{userId}`
+- `POST /api/tenant/invitations`
+- `GET /api/tenant/invitations`
+- `POST /api/tenant/invitations/{invitationId}/revoke`
+- `GET /api/audit/events`
+
+PlatformAdmin policy:
+
+- `POST /api/platform/tenants`
+- `POST /api/platform/tenants/{tenantId}/status`
+
+Invitation acceptance:
+
+- `POST /api/tenant/invitations/accept`
+
+Acceptance requires authenticated `sub`, `tenant_id`, and User/Admin role, but intentionally does not require an existing membership. The invitation itself is bound to the authenticated subject and tenant.
 
 ## Local development tokens
 
-Start the stack, then generate a one-hour user token:
+Generate development tokens:
 
 ```bash
 python scripts/create_dev_token.py --user demo-user --tenant demo-tenant --role User
-```
-
-Generate a tenant administrator token:
-
-```bash
 python scripts/create_dev_token.py --user demo-admin --tenant demo-tenant --role Admin
-```
-
-Generate a platform administrator token only for explicit cross-tenant tests:
-
-```bash
 python scripts/create_dev_token.py --user platform-admin --tenant platform --role PlatformAdmin
 ```
 
-Use the token in Swagger's **Authorize** dialog, paste it into the Web UI authentication panel, or send it as an HTTP header:
+Use them in Swagger, the Web UI, or:
 
 ```text
 Authorization: Bearer <token>
 ```
 
-The helper is not an identity provider and the repository signing key is development-only. Never reuse it in a deployed environment.
+A signed token does not provision a tenant or membership. Run `python scripts/demo_flow.py` for an automatic local provisioning/invitation flow, or use the lifecycle APIs documented in [Managed Tenant Lifecycle](TENANT_LIFECYCLE.md).
+
+The helper is not an identity provider and the repository signing key is development-only.
 
 ## JWT configuration
 
@@ -69,32 +97,37 @@ The API reads:
 - `Jwt:Audience`
 - `Jwt:SigningKey`
 
-The Development environment includes explicit local values. A non-development deployment must supply its own values through environment variables or a secret manager. Missing or weak JWT configuration prevents application startup.
+Development includes explicit local values. A deployed environment must supply managed values. Missing or weak JWT configuration prevents startup.
 
-A production deployment should use a real identity provider and managed asymmetric keys or a controlled key lifecycle. It must issue stable, non-reassignable user and tenant identifiers.
+Production should use stable, non-reassignable subject/tenant identifiers, managed signing keys, key rotation, and identity-provider session/token revocation. Durable membership removal protects this application immediately but does not revoke the upstream identity session.
 
-## Ownership and tenant migrations
+## Database migrations
 
-`infra/postgres/init/zzzz-document-ownership.sql` adds `documents.owner_id`, backfills existing rows to `legacy-system`, and makes ownership required.
+- `infra/postgres/init/zzzz-document-ownership.sql`: required document owner identity;
+- `infra/postgres/init/zzzzz-tenant-isolation.sql`: tenant identity, composite keys, runtime/privileged RLS;
+- `infra/postgres/init/zzzzzz-audit-observability.sql`: append-only audit boundary;
+- `infra/postgres/init/zzzzzzz-tenant-lifecycle.sql`: tenants, memberships, invitations, platform role, lifecycle RLS, and legacy mappings.
 
-`infra/postgres/init/zzzzz-tenant-isolation.sql` adds tenant identity to documents, chunks, and ingestion jobs; backfills existing rows to `legacy-tenant`; creates runtime database roles; and enables forced Row-Level Security.
-
-PostgreSQL entrypoint scripts run only for a fresh database volume. Existing databases require a reviewed manual migration after backup. Production data should be mapped to real tenants before deployment rather than left under the legacy tenant.
+Entrypoint scripts run only for fresh PostgreSQL volumes. Existing databases require reviewed manual migrations after backup and validation.
 
 ## Authorization invariants
 
-- user and tenant identity are assigned from validated JWT claims, never request JSON or form fields;
-- document metadata and the initial ingestion job are committed atomically with owner and tenant identity;
-- background processing preserves both values while creating semantic-index records;
-- `User` applies both tenant and owner scope;
-- `Admin` bypasses only the owner filter inside its tenant;
-- only `PlatformAdmin` uses the privileged cross-tenant path;
-- PostgreSQL Row-Level Security independently enforces tenant scope for runtime queries and writes;
-- source text returned by Search and Ask is subject to the same scope as document listing;
-- negative tests cover anonymous access, missing claims, cross-user access, cross-tenant access, and direct database writes.
-
-See [Tenant Isolation](TENANT_ISOLATION.md) for the database roles, RLS policies, session context, migration, and verification details.
+- user and tenant identity come from validated JWT claims, never document payloads;
+- durable lifecycle state is authoritative for non-platform access;
+- final active tenant Admin cannot be removed or downgraded;
+- invitation acceptance is subject/tenant-bound, one-time, expiry-aware, and revocation-aware;
+- only SHA-256 invitation-token digests are stored;
+- document metadata and initial job commit atomically with owner and tenant;
+- background processing preserves owner/tenant identity;
+- `User` applies tenant and owner scope;
+- durable `Admin` bypasses only owner scope inside one tenant;
+- `PlatformAdmin` uses the narrow `document_platform` path;
+- forced PostgreSQL RLS independently enforces tenant scope;
+- Search/Ask source text uses the same authorization scope;
+- negative tests cover anonymous access, missing claims, absent/removed membership, disabled tenant, stale Admin role, cross-user/tenant access, final-Admin protection, invitation replay, and direct database writes.
 
 ## Remaining production gaps
 
-This boundary does not complete tenant provisioning, membership and invitation workflows, audit logging, encrypted file storage, centralized secret management, token revocation, key rotation, or external identity-provider synchronization. The project must not be used for confidential or regulated documents until those controls and operational reviews are complete.
+This boundary does not provide external identity-provider/SCIM synchronization, trusted invitation delivery, domain verification, managed token revocation/key rotation, encrypted file storage, centralized secret management, quotas, retention/export/deletion, or production compliance review.
+
+See [Managed Tenant Lifecycle](TENANT_LIFECYCLE.md), [Tenant Isolation](TENANT_ISOLATION.md), and [Security Policy](../SECURITY.md).
