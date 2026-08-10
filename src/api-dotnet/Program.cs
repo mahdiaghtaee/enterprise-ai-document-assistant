@@ -7,6 +7,7 @@ using EnterpriseDocumentAssistant.Api.Documents;
 using EnterpriseDocumentAssistant.Api.Observability;
 using EnterpriseDocumentAssistant.Api.Security;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -54,7 +55,7 @@ builder.Services.AddSingleton<IDocumentRepository, PostgresDocumentRepository>()
 builder.Services.AddSingleton<IIngestionJobRepository, PostgresIngestionJobRepository>();
 builder.Services.AddDocumentProcessingStatusReader(builder.Configuration);
 builder.Services.AddSingleton<IDocumentStorage, LocalDocumentStorage>();
-builder.Services.AddSingleton<IDocumentTextExtractor, PlainTextDocumentTextExtractor>();
+builder.Services.AddDocumentFormatSecurity(builder.Configuration);
 builder.Services.AddSingleton<IDocumentChunker, FixedSizeDocumentChunker>();
 builder.Services.AddSingleton<IEmbeddingGenerator, DeterministicEmbeddingGenerator>();
 builder.Services.AddConfiguredSemanticIndex(builder.Configuration);
@@ -123,14 +124,17 @@ if (!hostingMode.RunsApi)
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", (ICorrelationContextAccessor correlation) => Results.Ok(new
+app.MapGet("/health", (
+    ICorrelationContextAccessor correlation,
+    IOptions<FileThreatScanningOptions> scanningOptions) => Results.Ok(new
 {
     service = hostingMode.RunsApi ? "document-api" : "document-worker",
     mode = hostingMode.Name,
     status = "ok",
     checkedAt = DateTimeOffset.UtcNow,
     correlationId = correlation.CorrelationId,
-    traceId = Activity.Current?.TraceId.ToString()
+    traceId = Activity.Current?.TraceId.ToString(),
+    fileThreatScanningProvider = scanningOptions.Value.Provider
 }));
 
 app.MapGet("/health/live", (ICorrelationContextAccessor correlation) => Results.Ok(new
@@ -280,6 +284,8 @@ documentApi.MapPost("/upload", async (
     IFormFile file,
     ClaimsPrincipal principal,
     IDocumentStorage storage,
+    IDocumentUploadInspector uploadInspector,
+    IFileThreatScanner threatScanner,
     IIngestionJobRepository jobRepository,
     IAuditEventRepository auditRepository,
     ICorrelationContextAccessor correlation,
@@ -294,8 +300,35 @@ documentApi.MapPost("/upload", async (
         {
             message = validationError,
             allowedContentTypes = DocumentUploadValidator.AllowedContentTypes,
+            allowedExtensions = DocumentUploadValidator.AllowedExtensions.Keys,
             maxUploadSizeBytes = DocumentUploadValidator.MaxUploadSizeBytes
         });
+    }
+
+    var inspection = await uploadInspector.InspectAsync(file, cancellationToken);
+    if (!inspection.Succeeded)
+    {
+        return Results.BadRequest(new
+        {
+            code = inspection.ErrorCode,
+            message = inspection.Message
+        });
+    }
+
+    var scan = await threatScanner.ScanAsync(file, cancellationToken);
+    if (!scan.AllowsUpload)
+    {
+        var statusCode = scan.Status == FileThreatScanStatus.ThreatDetected
+            ? StatusCodes.Status400BadRequest
+            : StatusCodes.Status503ServiceUnavailable;
+
+        return Results.Json(
+            new
+            {
+                code = scan.ErrorCode,
+                message = scan.Message
+            },
+            statusCode: statusCode);
     }
 
     var access = DocumentAccessContext.FromPrincipal(principal);
@@ -305,6 +338,8 @@ documentApi.MapPost("/upload", async (
     activity?.SetTag("tenant.id", access.TenantId);
     activity?.SetTag("document.content_type", file.ContentType);
     activity?.SetTag("document.size", file.Length);
+    activity?.SetTag("file_threat_scan.status", scan.Status.ToString());
+    activity?.SetTag("file_threat_scan.provider", scan.Provider);
 
     var storedDocument = await storage.SaveAsync(file, cancellationToken);
     DocumentIngestionCreationResult creationResult;
@@ -346,7 +381,9 @@ documentApi.MapPost("/upload", async (
             {
                 ["ingestionJobId"] = creationResult.Job.Id,
                 ["contentType"] = creationResult.Document.ContentType,
-                ["sizeInBytes"] = creationResult.Document.SizeInBytes
+                ["sizeInBytes"] = creationResult.Document.SizeInBytes,
+                ["threatScanStatus"] = scan.Status.ToString(),
+                ["threatScanProvider"] = scan.Provider
             }),
         access.UsePrivilegedDatabase,
         logger,
