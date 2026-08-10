@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Xml;
 using Microsoft.Extensions.Options;
+using UglyToad.PdfPig;
 
 namespace EnterpriseDocumentAssistant.Api.Documents;
 
@@ -126,7 +127,7 @@ public sealed class DocumentUploadInspector : IDocumentUploadInspector
         return DocumentUploadInspectionResult.Success();
     }
 
-    private static async Task<DocumentUploadInspectionResult> InspectPdfAsync(
+    private async Task<DocumentUploadInspectionResult> InspectPdfAsync(
         IFormFile file,
         CancellationToken cancellationToken)
     {
@@ -134,11 +135,32 @@ public sealed class DocumentUploadInspector : IDocumentUploadInspector
         var signature = new byte[5];
         var read = await stream.ReadAsync(signature.AsMemory(), cancellationToken);
 
-        return read == signature.Length && signature.AsSpan().SequenceEqual("%PDF-"u8)
-            ? DocumentUploadInspectionResult.Success()
-            : DocumentUploadInspectionResult.Failure(
+        if (read != signature.Length || !signature.AsSpan().SequenceEqual("%PDF-"u8))
+        {
+            return DocumentUploadInspectionResult.Failure(
                 "invalid-file-signature",
                 "The uploaded PDF does not have a valid PDF signature.");
+        }
+
+        try
+        {
+            stream.Position = 0;
+            using var document = PdfDocument.Open(stream);
+            if (document.NumberOfPages > _options.MaxPdfPages)
+            {
+                return DocumentUploadInspectionResult.Failure(
+                    "pdf-page-limit-exceeded",
+                    "The PDF exceeds the configured page-count safety limit.");
+            }
+
+            return DocumentUploadInspectionResult.Success();
+        }
+        catch (Exception)
+        {
+            return DocumentUploadInspectionResult.Failure(
+                "invalid-pdf-file",
+                "The uploaded PDF could not be parsed safely and may be malformed or encrypted.");
+        }
     }
 
     private Task<DocumentUploadInspectionResult> InspectDocxAsync(
@@ -198,13 +220,16 @@ public sealed class DocumentUploadInspector : IDocumentUploadInspector
                     "The DOCX package does not declare a supported WordprocessingML main document part."));
             }
 
+            ValidateXmlPart(documentPart, cancellationToken);
             return Task.FromResult(DocumentUploadInspectionResult.Success());
         }
         catch (InvalidDataException)
         {
-            return Task.FromResult(DocumentUploadInspectionResult.Failure(
-                "invalid-file-signature",
-                "The uploaded DOCX is not a valid ZIP/OOXML package."));
+            return Task.FromResult(InvalidDocxSignature());
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return Task.FromResult(InvalidDocxSignature());
         }
         catch (OverflowException)
         {
@@ -216,21 +241,14 @@ public sealed class DocumentUploadInspector : IDocumentUploadInspector
         {
             return Task.FromResult(DocumentUploadInspectionResult.Failure(
                 "invalid-docx-package",
-                "The DOCX content-type manifest is malformed."));
+                "The DOCX XML package is malformed or exceeds the configured XML safety limit."));
         }
     }
 
     private bool HasExpectedWordMainContentType(ZipArchiveEntry contentTypes, CancellationToken cancellationToken)
     {
         using var stream = contentTypes.Open();
-        using var reader = XmlReader.Create(stream, new XmlReaderSettings
-        {
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null,
-            MaxCharactersInDocument = _options.MaxDocxXmlCharacters,
-            IgnoreComments = true,
-            IgnoreProcessingInstructions = true
-        });
+        using var reader = XmlReader.Create(stream, CreateXmlReaderSettings());
 
         while (reader.Read())
         {
@@ -251,6 +269,30 @@ public sealed class DocumentUploadInspector : IDocumentUploadInspector
 
         return false;
     }
+
+    private void ValidateXmlPart(ZipArchiveEntry entry, CancellationToken cancellationToken)
+    {
+        using var stream = entry.Open();
+        using var reader = XmlReader.Create(stream, CreateXmlReaderSettings());
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    private XmlReaderSettings CreateXmlReaderSettings() => new()
+    {
+        DtdProcessing = DtdProcessing.Prohibit,
+        XmlResolver = null,
+        MaxCharactersInDocument = _options.MaxDocxXmlCharacters,
+        IgnoreComments = true,
+        IgnoreProcessingInstructions = true
+    };
+
+    private static DocumentUploadInspectionResult InvalidDocxSignature() =>
+        DocumentUploadInspectionResult.Failure(
+            "invalid-file-signature",
+            "The uploaded DOCX is not a valid ZIP/OOXML package.");
 
     private static ZipArchiveEntry? FindEntry(ZipArchive archive, string path)
     {
