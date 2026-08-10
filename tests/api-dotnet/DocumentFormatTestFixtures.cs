@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.Fonts.Standard14Fonts;
 using UglyToad.PdfPig.Writer;
