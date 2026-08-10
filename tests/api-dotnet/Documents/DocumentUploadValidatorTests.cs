@@ -39,13 +39,36 @@ public sealed class DocumentUploadValidatorTests
         Assert.Equal("Unsupported file type.", result);
     }
 
-    [Theory]
-    [InlineData("application/pdf")]
-    [InlineData("text/plain")]
-    [InlineData("application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
-    public void Validate_ReturnsNull_WhenFileIsValid(string contentType)
+    [Fact]
+    public void Validate_ReturnsError_WhenExtensionIsMissing()
     {
-        var file = CreateFormFile("document", contentType, 1024);
+        var file = CreateFormFile("document", "application/pdf", 1024);
+
+        var result = DocumentUploadValidator.Validate(file);
+
+        Assert.Equal("Unsupported file extension.", result);
+    }
+
+    [Theory]
+    [InlineData("document.pdf", "text/plain")]
+    [InlineData("document.txt", "application/pdf")]
+    [InlineData("document.docx", "application/pdf")]
+    public void Validate_ReturnsError_WhenExtensionAndContentTypeDoNotMatch(string fileName, string contentType)
+    {
+        var file = CreateFormFile(fileName, contentType, 1024);
+
+        var result = DocumentUploadValidator.Validate(file);
+
+        Assert.Equal("File extension and content type do not match.", result);
+    }
+
+    [Theory]
+    [InlineData("document.pdf", "application/pdf")]
+    [InlineData("document.txt", "text/plain")]
+    [InlineData("document.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
+    public void Validate_ReturnsNull_WhenFileMetadataIsValid(string fileName, string contentType)
+    {
+        var file = CreateFormFile(fileName, contentType, 1024);
 
         var result = DocumentUploadValidator.Validate(file);
 
