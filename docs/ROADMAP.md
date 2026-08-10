@@ -8,12 +8,12 @@ This roadmap separates completed capabilities from planned work. A milestone is 
 - ASP.NET Core and FastAPI health endpoints
 - local shared document storage
 - PostgreSQL-backed document metadata
-- plain-text extraction and fixed-size chunking
+- bounded TXT, text-bearing PDF, and DOCX extraction with safe upload gates
 - deterministic local embeddings
 - semantic search and grounded Ask endpoints
 - managed tenant lifecycle and durable membership enforcement
 - sample documents and end-to-end demo script
-- .NET, Python, PostgreSQL, container, CodeQL, and Dependency Review checks
+- .NET, Python, PostgreSQL, container, document-format, CodeQL, and Dependency Review checks
 
 ## Milestone 1 — Persistent Semantic Index (Completed in v0.2.0)
 
@@ -204,18 +204,48 @@ Remaining tenant-management work:
 - centralized secrets, managed service identities, and production network policy;
 - approval and notification workflows for elevated-role changes.
 
-## Milestone 7 — Document Format Expansion
+## Milestone 7 — Safe Document Format Expansion (Completed Foundation)
 
-Goal: support additional formats safely.
+Goal: support additional formats without treating extension/MIME metadata as a trust boundary or allowing unbounded parser work.
 
-Planned work:
+Tracked by issue #84.
 
-- PDF and DOCX text extraction;
-- optional OCR for scanned documents;
-- file-signature validation rather than extension-only checks;
-- malware-scanning integration point;
-- size, page-count, and extraction-time limits;
-- format-specific fixtures and controlled failure cases.
+Delivered:
+
+- strict extension/content-type agreement for `.txt`, `.pdf`, and `.docx`;
+- actual `%PDF-` signature checking plus PdfPig parse validation before durable enqueue;
+- DOCX ZIP/OOXML validation for required parts and WordprocessingML main-document declaration;
+- path-traversal rejection for DOCX archive entries;
+- configurable DOCX entry-count, expanded-byte, and XML-character limits;
+- configurable PDF page-count and extracted-character limits;
+- strict UTF-8 plain-text validation and extraction;
+- bounded PDF text extraction with PdfPig content-order extraction;
+- bounded DOCX WordprocessingML text extraction with DTD processing disabled and no XML resolver;
+- explicit `ocr-required` result for scanned/image-only PDFs rather than silent empty indexing;
+- optional fail-closed ClamAV `INSTREAM` scanner integration point;
+- local `Disabled` malware-scanning default that requires no external service and is visible through health output;
+- scanner failure/threat rejection before document storage and atomic job creation;
+- controlled scanner error codes without raw scanner response/signature leakage;
+- unit tests for signatures, package validation, extraction, limits, cancellation, and ClamAV protocol outcomes;
+- dedicated Compose workflow that uploads real PDF and DOCX fixtures through the managed tenant API, waits for the independent worker, verifies retrieval, and rejects a spoofed PDF;
+- updated configuration and extraction/security documentation.
+
+Current format boundary:
+
+- OCR execution is not bundled; scanned/image-only PDFs stop with `ocr-required`;
+- PDF reading order remains dependent on source layout and PdfPig extraction heuristics;
+- rich PDF layout/table reconstruction is not implemented;
+- password-protected PDF/DOCX workflows are not supported;
+- the reference stack does not deploy ClamAV by default; production scanner deployment, signature updates, isolation, monitoring, and network policy are operational responsibilities.
+
+Remaining document-processing work:
+
+- optional sandboxed OCR path with reviewed language packs and resource limits;
+- richer layout/table extraction where measured product requirements justify it;
+- production malware-scanner deployment/runbook and signature-update monitoring;
+- content-disarm/reconstruction or sandboxed document rendering where required;
+- file-at-rest encryption and object-storage lifecycle policies;
+- representative document-format corpus covering large, multilingual, malformed, and adversarial files.
 
 ## Explicitly Deferred
 

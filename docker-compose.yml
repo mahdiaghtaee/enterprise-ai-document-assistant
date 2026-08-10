@@ -14,6 +14,16 @@ services:
       SemanticIndex__Provider: Postgres
       Redis__ConnectionString: redis:6379
       AiService__BaseUrl: http://ai-service:8000
+      DocumentProcessing__MaxPdfPages: ${DOCUMENT_MAX_PDF_PAGES:-200}
+      DocumentProcessing__MaxDocxArchiveEntries: ${DOCUMENT_MAX_DOCX_ARCHIVE_ENTRIES:-2048}
+      DocumentProcessing__MaxDocxExpandedBytes: ${DOCUMENT_MAX_DOCX_EXPANDED_BYTES:-52428800}
+      DocumentProcessing__MaxExtractedCharacters: ${DOCUMENT_MAX_EXTRACTED_CHARACTERS:-1000000}
+      DocumentProcessing__MaxDocxXmlCharacters: ${DOCUMENT_MAX_DOCX_XML_CHARACTERS:-5000000}
+      FileThreatScanning__Provider: ${FILE_THREAT_SCANNING_PROVIDER:-Disabled}
+      FileThreatScanning__Host: ${CLAMAV_HOST:-clamav}
+      FileThreatScanning__Port: ${CLAMAV_PORT:-3310}
+      FileThreatScanning__Timeout: ${CLAMAV_TIMEOUT:-00:00:10}
+      FileThreatScanning__ChunkSizeBytes: ${CLAMAV_CHUNK_SIZE_BYTES:-65536}
       OpenTelemetry__ServiceName: enterprise-document-assistant-api
       OpenTelemetry__ServiceVersion: ${SERVICE_VERSION:-dev}
       OpenTelemetry__OtlpEndpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -50,6 +60,11 @@ services:
       ConnectionStrings__PostgresPrivileged: Host=postgres;Port=5432;Database=${POSTGRES_DB:-documents};Username=document_privileged;Password=${PRIVILEGED_DB_PASSWORD:-document-privileged-local}
       SemanticIndex__Provider: Postgres
       AiService__BaseUrl: http://ai-service:8000
+      DocumentProcessing__MaxPdfPages: ${DOCUMENT_MAX_PDF_PAGES:-200}
+      DocumentProcessing__MaxDocxArchiveEntries: ${DOCUMENT_MAX_DOCX_ARCHIVE_ENTRIES:-2048}
+      DocumentProcessing__MaxDocxExpandedBytes: ${DOCUMENT_MAX_DOCX_EXPANDED_BYTES:-52428800}
+      DocumentProcessing__MaxExtractedCharacters: ${DOCUMENT_MAX_EXTRACTED_CHARACTERS:-1000000}
+      DocumentProcessing__MaxDocxXmlCharacters: ${DOCUMENT_MAX_DOCX_XML_CHARACTERS:-5000000}
       OpenTelemetry__ServiceName: enterprise-document-assistant-worker
       OpenTelemetry__ServiceVersion: ${SERVICE_VERSION:-dev}
       OpenTelemetry__OtlpEndpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}

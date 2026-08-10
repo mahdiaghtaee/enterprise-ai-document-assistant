@@ -1,6 +1,6 @@
 # Local Development Guide
 
-This guide covers managed tenant provisioning, durable membership authorization, split API/worker processing, PostgreSQL Row-Level Security, and isolation verification.
+This guide covers managed tenant provisioning, durable membership authorization, safe TXT/PDF/DOCX ingestion, split API/worker processing, PostgreSQL Row-Level Security, and isolation verification.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ For Docker Compose, install Docker, Docker Compose v2, Git, and Python 3.11 or l
 
 ## Environment setup
 
-Copy the local environment template when changing ports or development credentials:
+Copy the local environment template when changing ports, development credentials, document-processing limits, or optional integrations:
 
 ```bash
 cp .env.example .env
@@ -19,6 +19,8 @@ Windows PowerShell:
 ```powershell
 Copy-Item .env.example .env
 ```
+
+Core local settings:
 
 | Variable | Default | Purpose |
 |---|---:|---|
@@ -35,7 +37,22 @@ Copy-Item .env.example .env
 | `PLATFORM_DB_PASSWORD` | `document-platform-local` | Narrow lifecycle/cross-tenant read role password |
 | `PRIVILEGED_DB_PASSWORD` | `document-privileged-local` | Independent ingestion-worker role password |
 
-These are local-development values only. Production must use managed secrets, separate service identities, restricted networks, and its own JWT issuer/audience/signing configuration.
+Safe document-processing settings:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DOCUMENT_MAX_PDF_PAGES` | `200` | Maximum PDF pages accepted/processed |
+| `DOCUMENT_MAX_DOCX_ARCHIVE_ENTRIES` | `2048` | Maximum DOCX ZIP entries |
+| `DOCUMENT_MAX_DOCX_EXPANDED_BYTES` | `52428800` | Maximum total uncompressed DOCX bytes |
+| `DOCUMENT_MAX_EXTRACTED_CHARACTERS` | `1000000` | Maximum normalized extracted text characters |
+| `DOCUMENT_MAX_DOCX_XML_CHARACTERS` | `5000000` | Maximum XML characters parsed per inspected/extracted DOCX part |
+| `FILE_THREAT_SCANNING_PROVIDER` | `Disabled` | `Disabled` or fail-closed `ClamAv` |
+| `CLAMAV_HOST` | `clamav` | clamd host when enabled |
+| `CLAMAV_PORT` | `3310` | clamd TCP port |
+| `CLAMAV_TIMEOUT` | `00:00:10` | Scanner request timeout |
+| `CLAMAV_CHUNK_SIZE_BYTES` | `65536` | INSTREAM chunk size |
+
+These are local-development values only. Production must use managed secrets, separate service identities, restricted networks, its own JWT issuer/audience/signing configuration, and an operated malware-scanning service if scanning is required.
 
 ## Start the stack
 
@@ -52,7 +69,9 @@ Expected services:
 - PostgreSQL with pgvector and forced RLS;
 - Redis.
 
-The API and Worker share the named `document-storage` volume. The API writes uploaded files and pending jobs; the Worker reads those files and performs extraction/indexing.
+The reference stack does **not** start ClamAV. The default `FILE_THREAT_SCANNING_PROVIDER=Disabled` requires no external scanning service. `/health` reports `fileThreatScanningProvider` so this state is explicit.
+
+The API and Worker share the named `document-storage` volume. The API validates and optionally scans uploads before persistence, then writes pending jobs. The Worker reads accepted files and performs bounded TXT/PDF/DOCX extraction and indexing.
 
 Fresh PostgreSQL volumes initialize:
 
@@ -94,7 +113,15 @@ Without `JWT_TOKEN`, the script:
 6. waits for the independent Worker;
 7. runs Search and grounded Ask.
 
-Optional identity overrides:
+Run the dedicated document-format smoke flow against a running stack:
+
+```bash
+python scripts/document_format_smoke.py
+```
+
+It provisions an isolated local tenant, accepts a membership invitation, uploads real PDF and DOCX fixtures, waits for Worker completion, verifies both files through semantic retrieval, and confirms a spoofed PDF is rejected before enqueue.
+
+Optional identity overrides for the main demo:
 
 ```text
 DEMO_USER_ID
@@ -104,6 +131,51 @@ DEMO_ROLE
 ```
 
 Set `JWT_TOKEN` only for an already provisioned external subject. The token helper is not an identity provider.
+
+## Safe document upload behavior
+
+Supported pairs are exact:
+
+| Extension | Content type |
+|---|---|
+| `.txt` | `text/plain` |
+| `.pdf` | `application/pdf` |
+| `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
+
+The upload flow is:
+
+1. validate JWT and durable tenant membership;
+2. enforce 10 MB upload size, supported extension, supported MIME, and extension/MIME agreement;
+3. inspect actual document structure:
+   - TXT initial bytes must be UTF-8 and non-binary;
+   - PDF must have `%PDF-`, parse successfully with PdfPig, and stay under the page limit;
+   - DOCX must be a bounded ZIP/OOXML package containing the expected Word main document part and safe XML;
+4. if configured, stream the upload to ClamAV before local storage;
+5. persist the accepted file to the shared volume;
+6. atomically create document metadata and the pending ingestion job;
+7. return `202 Accepted`;
+8. Worker re-applies extraction limits and writes semantic chunks only after successful extraction.
+
+Scanned/image-only PDFs return a terminal `ocr-required` processing error. OCR is not silently attempted or bundled.
+
+## Optional ClamAV testing
+
+To use a trusted clamd endpoint, set:
+
+```text
+FILE_THREAT_SCANNING_PROVIDER=ClamAv
+CLAMAV_HOST=<reachable-clamd-host>
+CLAMAV_PORT=3310
+CLAMAV_TIMEOUT=00:00:10
+```
+
+When `ClamAv` is selected, the API fails closed:
+
+- clean scanner verdict -> upload may continue;
+- threat verdict -> HTTP `400` with `malware-detected`;
+- timeout/unreachable/unexpected scanner result -> HTTP `503` with `malware-scanner-unavailable`.
+
+Do not enable `ClamAv` merely by changing the setting if no scanner is actually operated. The repository does not manage signature updates, scanner availability, network isolation, or scanner monitoring.
 
 ## Manual lifecycle workflow
 
@@ -189,12 +261,13 @@ The upload request:
 2. checks active tenant and durable membership;
 3. rejects stale elevated JWT roles that do not match durable membership;
 4. derives owner and tenant identity from claims;
-5. validates and stores the file on the shared volume;
-6. opens a tenant-scoped PostgreSQL transaction;
-7. atomically persists document metadata and the initial job;
-8. returns `202 Accepted`.
+5. validates extension/MIME, document signature/package, format safety limits, and optional malware verdict;
+6. stores the accepted file on the shared volume;
+7. opens a tenant-scoped PostgreSQL transaction;
+8. atomically persists document metadata and the initial job;
+9. returns `202 Accepted`.
 
-The independent Worker uses the privileged connection, loads persisted tenant/owner state, reads the shared file, and preserves both identities while writing semantic chunks.
+The independent Worker uses the privileged connection, loads persisted tenant/owner state, reads the shared file, re-applies bounded extraction rules, and preserves both identities while writing semantic chunks.
 
 - `User`: active membership plus owner and tenant filters;
 - `Admin`: active durable Admin plus tenant filter only;
@@ -213,37 +286,16 @@ PostgreSQL integration tests run when `POSTGRES_TEST_CONNECTION_STRING` is confi
 - final-Admin protection;
 - cross-tenant write rejection;
 - API lifecycle and authorization behavior;
-- independent Worker processing and shared storage;
+- extension/MIME and real PDF/DOCX inspection boundaries;
+- bounded TXT/PDF/DOCX extraction and `ocr-required` behavior;
+- optional ClamAV protocol behavior without a real scanner service;
+- independent Worker PDF/DOCX processing through the dedicated Compose smoke workflow;
 - API/Worker restart persistence;
 - credential separation.
 
-## Manual tenant-isolation verification
-
-1. Provision `tenant-a` and `tenant-b` with different initial Admins.
-2. Invite and accept `user-a` in `tenant-a` and `user-b` in `tenant-b`.
-3. Upload a sample with `user-a` and wait for `Completed`.
-4. Search with `user-a`; the document must appear.
-5. Search with another ordinary member in `tenant-a`; the document must not appear.
-6. Search with the durable `tenant-a` Admin; the document may appear.
-7. Search with the `tenant-b` Admin; the document must not appear.
-8. Search with PlatformAdmin; the document may appear through the platform read path.
-9. Remove a member and verify immediate `403`.
-10. Disable a tenant and verify all non-platform members receive `403`.
-11. Restart both API and Worker and repeat persistence checks.
-12. Inspect stored state:
-
-```bash
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT tenant_id, display_name, status FROM tenants ORDER BY tenant_id;"
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT tenant_id, user_id, role, status FROM tenant_memberships ORDER BY tenant_id, user_id;"
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT id, tenant_id, invitee_user_id, role, status, length(token_hash) FROM tenant_invitations ORDER BY created_at;"
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT id, file_name, tenant_id, owner_id, status FROM documents ORDER BY created_at DESC;"
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT document_id, tenant_id, chunk_index FROM document_chunks ORDER BY document_id, chunk_index;"
-docker compose exec -T postgres psql -U documents -d documents -c "SELECT document_id, tenant_id, status FROM document_ingestion_jobs ORDER BY id;"
-```
-
 ## Existing PostgreSQL volumes
 
-Entrypoint scripts run only for a fresh volume. Existing databases must not be assumed to have lifecycle tables, platform roles, or current RLS policies.
+The safe document-format milestone adds no database migration. Entrypoint scripts still run only for a fresh volume, so existing databases must not be assumed to have current tenant lifecycle/RLS schema.
 
 For required data:
 
@@ -254,7 +306,8 @@ For required data:
 5. review generated legacy tenant/member mappings and ensure every tenant has an active Admin;
 6. verify constraints, grants, roles, policies, invitation indexes, and runtime behavior;
 7. deploy separate API and Worker identities;
-8. serve traffic only after negative lifecycle and cross-tenant tests pass.
+8. review and configure document-processing safety limits;
+9. serve traffic only after negative lifecycle, cross-tenant, and document-format tests pass.
 
 For disposable local data only:
 
@@ -271,13 +324,19 @@ Verify bearer header, signature key, issuer, audience, expiration, and API envir
 
 ### `403 Forbidden`
 
-Check all of the following:
+Check required JWT claims, active tenant, active membership, durable role, and invitation acceptance.
 
-- required JWT claims and supported role;
-- tenant exists and is `Active`;
-- membership exists and is `Active`;
-- JWT Admin claim matches a durable Admin membership;
-- invitation was accepted by the matching subject.
+### Upload returns `400 invalid-file-signature` or `invalid-docx-package`
+
+The bytes do not match the declared format or the DOCX package is structurally unsafe/malformed. Renaming a file or changing its MIME header does not bypass inspection.
+
+### PDF processing returns `ocr-required`
+
+The PDF has no extractable text. OCR is intentionally not bundled. Use a text-bearing PDF or add a separately reviewed OCR pipeline.
+
+### Upload returns `503 malware-scanner-unavailable`
+
+`FILE_THREAT_SCANNING_PROVIDER=ClamAv` is enabled but clamd did not produce a trusted clean result. Verify scanner health, host/port, firewall/network rules, timeout, and signature-update operations. Do not switch to permissive behavior merely to bypass an outage.
 
 ### Invitation returns `409`
 
@@ -318,4 +377,4 @@ This is expected. The runtime role cannot insert or update a row whose `tenant_i
 
 Initialization scripts do not rerun against existing volumes. Apply reviewed migrations after backup rather than deleting required data.
 
-See [Managed Tenant Lifecycle](TENANT_LIFECYCLE.md), [Authentication and Authorization](AUTHENTICATION_AND_AUTHORIZATION.md), and [Tenant Isolation](TENANT_ISOLATION.md) for the complete security model.
+See [Safe Document Extraction](TEXT_EXTRACTION_PIPELINE.md), [Managed Tenant Lifecycle](TENANT_LIFECYCLE.md), [Authentication and Authorization](AUTHENTICATION_AND_AUTHORIZATION.md), and [Tenant Isolation](TENANT_ISOLATION.md) for the complete security model.

@@ -4,18 +4,19 @@
 [![Audit and observability](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/observability.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/observability.yml)
 [![Retrieval quality](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/retrieval-evaluation.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/retrieval-evaluation.yml)
 [![Grounded answers](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/answer-evaluation.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/answer-evaluation.yml)
+[![Safe document formats](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/document-formats.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/document-formats.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A local-first reference implementation for managed tenant document ingestion, durable background processing, persistent semantic retrieval, provider-optional grounded answers, auditable operations, and reproducible quality evaluation.
 
-The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The default pipeline is deterministic and runs without paid AI credentials or a telemetry collector. The public API and privileged ingestion worker run as separate services with different database identities.
+The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The default pipeline is deterministic and runs without paid AI credentials, a malware-scanning service, or a telemetry collector. The public API and privileged ingestion worker run as separate services with different database identities.
 
 ```text
-JWT subject/tenant -> Durable tenant + membership policy -> Tenant RLS -> API enqueue
+JWT subject/tenant -> Durable tenant + membership policy -> Tenant RLS -> Safe upload gates
                                                             |
 Shared document volume <- Public API ------------------------+-> Privileged worker
                                                                   |
-                                                Extract/chunk/embed -> pgvector
+                                        TXT/PDF/DOCX extract/chunk/embed -> pgvector
                                                                   |
 Tenant-scoped retrieval -> Evidence/citation gate -> Answer + sources
           |                         |
@@ -47,6 +48,11 @@ Implemented:
 - PostgreSQL-backed metadata and atomic document/job enqueue
 - durable `Pending`, `Processing`, `Completed`, and `Failed` job states
 - transactional job claiming with PostgreSQL `FOR UPDATE SKIP LOCKED`
+- extension/MIME agreement plus actual PDF and DOCX package inspection before durable enqueue
+- bounded strict UTF-8, PDF, and DOCX text extraction in the independent worker
+- PDF page limits, DOCX archive/XML limits, total extracted-character limits, and cancellation-aware processing
+- explicit `ocr-required` handling for image-only/scanned PDFs rather than empty indexing
+- optional fail-closed ClamAV `INSTREAM` malware-scanning boundary with a service-free disabled local default
 - background extraction, chunking, embedding, and semantic-index persistence
 - bounded retries, graceful shutdown, and abandoned-job recovery
 - authenticated processing-status, semantic search, and grounded Ask endpoints
@@ -67,8 +73,7 @@ Implemented:
 - atomic trigger audit for document and ingestion-job state changes
 - correlated application audit for document, answer, tenant, membership, invitation, and audit operations
 - tenant-admin audit visibility and explicit PlatformAdmin cross-tenant visibility
-- plain-text extraction and deterministic eight-dimensional local embeddings
-- configurable in-memory or PostgreSQL/pgvector semantic index
+- deterministic eight-dimensional local embeddings and configurable in-memory or PostgreSQL/pgvector semantic index
 - versioned tenant-safe retrieval corpus and relevance judgments
 - repeatable Precision@K, Recall@K, MRR, empty-query, and local latency evaluation
 - versioned grounded-answer cases for citation, insufficient evidence, and provider-failure gates
@@ -86,9 +91,9 @@ Not implemented yet:
 - encrypted document storage and centralized secret management
 - approved production provider account or provider-specific factual-accuracy validation
 - representative production-scale or statistically validated retrieval/answer evaluation
-- PDF, DOCX, OCR, malware scanning, or file-signature validation
+- OCR execution, rich PDF layout/table reconstruction, password-protected-document workflows, or a bundled production malware engine
 
-Managed membership checks, database isolation, grounding gates, and durable auditability reduce disclosure and accountability risks, but this reference project must not be used for confidential or regulated documents until identity-provider lifecycle, encryption, secret management, retention, invitation delivery, external-provider governance, and operational review are completed. See [SECURITY.md](SECURITY.md).
+Managed membership checks, database isolation, file-format gates, grounding gates, and durable auditability reduce disclosure and accountability risks, but this reference project must not be used for confidential or regulated documents until identity-provider lifecycle, encryption, secret management, retention, invitation delivery, malware operations, external-provider governance, and operational review are completed. See [SECURITY.md](SECURITY.md).
 
 ## Quick Start
 
@@ -96,7 +101,7 @@ Managed membership checks, database isolation, grounding gates, and durable audi
 
 - Docker Desktop or Docker Engine with Compose
 - Git
-- Python 3.11+ for the local token helper and demo script
+- Python 3.11+ for the local token helper, demo, and format smoke test
 - .NET SDK 8.0+ for local tests and quality evaluation
 
 ### Start the split stack
@@ -108,7 +113,7 @@ cp .env.example .env   # Windows PowerShell: Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Docker Compose starts separate `document-api` and `document-worker` services. The API receives tenant-runtime and narrow platform-management database credentials. Only the worker receives the privileged ingestion credential. Both services mount the same named document-storage volume.
+Docker Compose starts separate `document-api` and `document-worker` services. The API receives tenant-runtime and narrow platform-management database credentials. Only the worker receives the privileged ingestion credential. Both services mount the same named document-storage volume. Malware scanning is explicitly `Disabled` by default; `/health` reports the selected file-threat-scanning provider.
 
 | Service | Address |
 |---|---|
@@ -124,6 +129,12 @@ Run the managed end-to-end demo:
 
 ```bash
 python scripts/demo_flow.py
+```
+
+Run the safe PDF/DOCX Compose smoke test against an already running local stack:
+
+```bash
+python scripts/document_format_smoke.py
 ```
 
 The default demo:
@@ -170,6 +181,7 @@ The commands write machine-readable reports under `artifacts/` and return a non-
 
 Detailed setup and implementation guidance:
 
+- [Safe TXT/PDF/DOCX extraction and malware boundary](docs/TEXT_EXTRACTION_PIPELINE.md)
 - [Managed tenant lifecycle and worker trust boundary](docs/TENANT_LIFECYCLE.md)
 - [Local development](docs/LOCAL_DEVELOPMENT.md)
 - [Provider-backed grounded Ask endpoint](docs/RAG_ASK_ENDPOINT.md)
@@ -248,14 +260,16 @@ flowchart LR
     U[Authenticated client] --> J[JWT validation]
     J --> M[Active tenant and membership policy]
     M --> A[Public ASP.NET Core API]
-    A --> T[Tenant-local DB context]
+    A --> G1[Format and signature gates]
+    G1 --> MS[Optional malware scan]
+    MS --> T[Tenant-local DB context]
     T --> P[(PostgreSQL forced RLS)]
     A --> L[(Append-only audit ledger)]
     A --> S[(Shared document volume)]
     A --> Q[(Pending ingestion job)]
     Q --> W[Independent privileged worker]
     S --> W
-    W --> X[Extract and chunk]
+    W --> X[Bounded TXT/PDF/DOCX extract and chunk]
     X --> E[Deterministic embeddings]
     E --> V[(Tenant-tagged pgvector chunks)]
     V --> R[Tenant and owner scoped retrieval]
@@ -271,6 +285,8 @@ flowchart LR
 ```
 
 JWT claims identify the caller and requested tenant. Durable tenant and membership state determines whether access remains active. Runtime PostgreSQL transactions set transaction-local tenant context; forced RLS independently limits tenant data. `User` adds an owner filter, durable `Admin` removes only that owner filter inside one tenant, and `PlatformAdmin` uses the narrow platform role.
+
+Upload filename extension, declared MIME, actual PDF/DOCX structure, configured extraction limits, and optional malware verdict are checked before durable enqueue. The worker re-applies format-specific processing limits before indexing. Scanner responses, extracted text, document contents, and threat signature names are not audit or metric dimensions.
 
 Retrieved sources are selected before answer generation. The provider never supplies document identifiers or source text in the response contract. The grounding service accepts an answer only when it cites supplied request-local source markers. Missing, weak, or conflicting evidence produces an explicit non-answer.
 
@@ -303,7 +319,10 @@ CI verifies:
 - cross-tenant lifecycle and document database read/write rejection;
 - absence of the privileged worker connection from the API container;
 - independent worker processing through shared storage;
-- successful upload, processing, retrieval, lifecycle state, and persistence after API/worker restart;
+- successful TXT, PDF, and DOCX upload/processing and spoofed-PDF rejection;
+- PDF/DOCX signature, package, page, expansion, XML, extraction, and OCR-required failure gates;
+- disabled, clean, detected, and unavailable malware-scanner behavior without a real scanner dependency;
+- successful retrieval, lifecycle state, and persistence after API/worker restart;
 - valid and invalid correlation identifiers in ASP.NET Core and FastAPI;
 - audit constraints, policies, triggers, append-only privileges, tenant isolation, and secret exclusion;
 - retrieval metric calculations, corpus categories, and committed thresholds;
@@ -314,7 +333,10 @@ CI verifies:
 
 ## Current Limitations
 
-- Only the supported local plain-text extraction path is implemented.
+- TXT, text-bearing PDF, and DOCX extraction are implemented; scanned/image-only PDFs return `ocr-required` because OCR execution is not bundled.
+- PDF reading order remains layout-dependent and rich layout/table reconstruction is not implemented.
+- The local default reports malware scanning as disabled; production scanner deployment, signature updates, network policy, and operational monitoring are external responsibilities.
+- Password-protected document workflows are not implemented.
 - Invitation email/SMS delivery, domain verification, and recipient proofing are not implemented.
 - External IdP/SCIM synchronization, managed key rotation, identity-provider session revocation, and device controls remain absent.
 - Per-tenant quotas, retention, export, deletion, legal hold, and organization recovery are not implemented.
@@ -324,13 +346,13 @@ CI verifies:
 - The OpenAI-compatible path validates protocol and grounding controls without calling or endorsing a real provider.
 - Docker Compose uses development defaults and exposes local infrastructure ports.
 
-The next engineering priorities are audit retention/operational dashboards, safe PDF/DOCX extraction boundaries, larger reviewed multilingual evaluation, and production identity/secret integration.
+The next engineering priorities are audit retention/operational dashboards, larger reviewed multilingual evaluation, production identity/secret integration, and OCR/advanced document-processing operations.
 
 ## Repository Structure
 
 | Area | Responsibility |
 |---|---|
-| `src/api-dotnet/` | Authentication, tenant lifecycle, authorization, audit, API/worker modes, providers, persistence, and retrieval |
+| `src/api-dotnet/` | Authentication, tenant lifecycle, authorization, audit, safe file gates, API/worker modes, providers, persistence, and retrieval |
 | `src/ai-service-python/` | Correlated FastAPI and OpenTelemetry boundary for future Python-specific processing |
 | `src/web-ui/` | Authenticated demonstration interface |
 | `infra/postgres/` | PostgreSQL roles, lifecycle, RLS, audit, ownership, pgvector, and ingestion initialization |
@@ -338,13 +360,13 @@ The next engineering priorities are audit retention/operational dashboards, safe
 | `evaluation/answers/` | Versioned grounding, insufficient-evidence, and provider-failure cases |
 | `tools/retrieval-evaluation/` | Provider-free retrieval evaluation command and metrics |
 | `tools/answer-evaluation/` | Credential-free grounded-answer evaluation command and report |
-| `tests/api-dotnet/` | API, lifecycle, security, audit, provider, RLS, pipeline, and PostgreSQL tests |
-| `scripts/` | Tenant-aware token helper and managed end-to-end demo |
-| `docs/` | Architecture, lifecycle, security, migrations, providers, observability, evaluation, operations, and roadmap |
+| `tests/api-dotnet/` | API, lifecycle, security, audit, document-format, provider, RLS, pipeline, and PostgreSQL tests |
+| `scripts/` | Tenant-aware token helper, managed demo, and document-format Compose smoke test |
+| `docs/` | Architecture, lifecycle, security, extraction, migrations, providers, observability, evaluation, operations, and roadmap |
 
 ## Contributing
 
-Focused contributions are welcome for identity-provider synchronization, tenant governance, representative evaluation corpora, approved provider comparisons, audit retention, and safe document-format expansion.
+Focused contributions are welcome for identity-provider synchronization, tenant governance, representative evaluation corpora, approved provider comparisons, audit retention, OCR/document-layout processing, and production malware operations.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report security-sensitive findings through [SECURITY.md](SECURITY.md).
 
