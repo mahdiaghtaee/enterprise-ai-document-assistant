@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Safe TXT, PDF, and DOCX upload boundaries that require supported file extensions and matching declared content types.
+- Actual `%PDF-` signature inspection plus PdfPig parsing and page-count validation before durable enqueue.
+- DOCX ZIP/OOXML package inspection for required Word parts, content-type declarations, traversal-safe paths, bounded archive entries, and bounded expanded bytes.
+- Secure DOCX XML parsing with DTD processing prohibited, external resolution disabled, and bounded XML characters.
+- Bounded strict-UTF-8 TXT, PdfPig PDF, and WordprocessingML DOCX text extraction in the independent ingestion worker.
+- Configurable PDF page, DOCX archive/XML, and total extracted-character safety limits.
+- Explicit `ocr-required` processing failure for scanned/image-only PDFs rather than silent empty indexing.
+- Optional fail-closed ClamAV `INSTREAM` malware-scanning integration with a service-free `Disabled` local default.
+- Controlled `malware-detected` and `malware-scanner-unavailable` outcomes without exposing raw scanner responses or threat-signature names.
+- Unit tests covering extension/MIME mismatches, invalid signatures, malformed OOXML, archive expansion limits, PDF/DOCX extraction, OCR-required behavior, cancellation, and scanner `OK`/`FOUND`/unavailable outcomes.
+- A dedicated Safe Document Format integration workflow that uploads real PDF and DOCX fixtures through the managed tenant API, waits for the independent Worker, verifies retrieval, and rejects a spoofed PDF.
 - Managed `tenants`, `tenant_memberships`, and `tenant_invitations` storage protected by forced PostgreSQL Row-Level Security.
 - PlatformAdmin APIs for tenant provisioning, deactivation, and reactivation.
 - Atomic creation of a tenant and its initial Admin membership.
@@ -42,6 +53,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Upload processing now validates metadata, actual document structure, and the configured malware verdict before storing files or creating durable document/job records.
+- The Worker re-applies format-specific page, archive, XML, extracted-character, and cancellation boundaries before semantic indexing.
+- `/health` reports the selected file-threat-scanning provider so the service-free `Disabled` local default is explicit.
+- Successful upload audit metadata may record bounded scanner provider/status values but excludes document content, extracted text, raw scanner responses, and threat-signature names.
 - JWT claims authenticate the requested subject and tenant, while durable tenant/membership state is authoritative for non-platform authorization.
 - Membership removal, Admin downgrade, and tenant deactivation affect the next protected request without waiting for JWT expiration.
 - The public API no longer receives `ConnectionStrings:PostgresPrivileged`; only the independent Worker receives the full ingestion credential.
@@ -50,12 +65,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Processing-status reads use tenant-RLS or platform-read paths rather than the worker repository credential.
 - The local demo provisions a tenant and accepts a one-time invitation before document operations.
 - `Admin` remains tenant scoped; only `PlatformAdmin` uses the explicit cross-tenant path.
-- Search, Ask, and lifecycle audit metadata stores bounded operational values while excluding query, question, source, answer, invitation-secret, response-body, and credential content.
+- Search, Ask, lifecycle, and upload audit metadata stores bounded operational values while excluding query, question, source, answer, invitation-secret, scanner-response, response-body, and credential content.
 - Ask keeps its original response fields while adding answer status, provider, model, grounding, and reason metadata.
-- Documentation now treats managed tenant lifecycle, split-worker trust boundaries, tenant isolation, audit/observability, retrieval evaluation, and grounded-answer providers as delivered foundations.
+- Documentation now treats safe document-format expansion, managed tenant lifecycle, split-worker trust boundaries, tenant isolation, audit/observability, retrieval evaluation, and grounded-answer providers as delivered foundations.
 
 ### Migration notes
 
+- Safe TXT/PDF/DOCX ingestion introduces no database schema migration.
+- Existing deployments should review and explicitly configure `DocumentProcessing:*` safety limits before enabling PDF/DOCX uploads.
+- `FileThreatScanning:Provider` remains `Disabled` unless a trusted malware scanner is operated. Selecting `ClamAv` requires a reachable clamd endpoint and causes scanner timeout/unavailability to reject uploads.
 - Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql`, `infra/postgres/init/zzzzz-tenant-isolation.sql`, `infra/postgres/init/zzzzzz-audit-observability.sql`, and `infra/postgres/init/zzzzzzz-tenant-lifecycle.sql` automatically.
 - Existing PostgreSQL volumes require reviewed manual application after verified database and stored-file backups because entrypoint scripts do not rerun.
 - Existing tenant/owner data is mapped to explicit lifecycle records; every generated mapping and active Admin assignment must be reviewed before serving traffic.
@@ -67,15 +85,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Known limitations
 
+- OCR execution is not bundled; scanned/image-only PDFs stop with `ocr-required`.
+- PDF reading order remains layout-dependent and rich layout/table reconstruction is not implemented.
+- The reference stack does not bundle or operate ClamAV; malware scanning is explicitly disabled by default and production signature updates, isolation, availability monitoring, and network policy are deployment responsibilities.
+- Password-protected document workflows, legacy `.doc`, content-disarm/reconstruction, and sandboxed rendering are not implemented.
 - Trusted invitation email/SMS delivery, domain verification, and recipient identity proofing are not implemented.
 - External IdP/SCIM synchronization, managed signing-key rotation, identity-provider session revocation, and device controls remain absent.
 - Per-tenant quotas, retention, export, deletion, legal hold, and organization recovery workflows are not implemented.
 - A production telemetry backend, dashboards, alerts, SLOs, audit retention, and tamper-evident archival are not bundled.
-- Encrypted document storage, malware scanning, and centralized secret management remain absent.
+- Encrypted document storage and centralized secret management remain absent.
 - The repository signing key, PlatformAdmin tokens, and token helper are for local development only.
 - The retrieval and answer datasets are small and synthetic; they detect controlled regressions but do not establish production factual accuracy.
 - The optional provider path verifies protocol and grounding controls without a production provider account or factual-accuracy claim.
-- The project remains unsuitable for confidential or regulated documents without additional identity, invitation-delivery, encryption, retention, secret-management, and operational controls.
+- The project remains unsuitable for confidential or regulated documents without additional identity, invitation-delivery, encryption, retention, secret-management, malware-operations, and operational controls.
 
 ## 0.3.0 - 2026-07-27
 
@@ -109,7 +131,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Known limitations
 
-- Only the supported local plain-text extraction path is implemented.
+- Only the supported local plain-text extraction path is implemented in version 0.3.0.
 - The deterministic embedding generator is intended for reproducible development and evaluation, not production retrieval quality.
 - The FastAPI service remains an integration boundary and does not perform extraction, embeddings, retrieval, or answer generation.
 - Docker Compose uses development defaults and exposed local ports.
