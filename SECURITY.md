@@ -4,7 +4,7 @@
 
 Enterprise AI Document Assistant is an open-source reference project and development portfolio. It is not currently intended to store confidential, regulated, or production business documents.
 
-The repository demonstrates JWT authentication, durable tenant and membership authorization, database-enforced tenant isolation, one-time invitation handling, user ownership, durable ingestion, tenant-scoped semantic retrieval, append-only audit events, correlation identifiers, structured logging, OpenTelemetry-compatible diagnostics, and optional grounded-answer providers. Production controls such as external identity-provider synchronization, domain verification, encrypted document storage, centralized secret management, managed key rotation, token revocation, tenant quotas, retention/deletion automation, audit archival, alerting, and external immutable audit storage remain on the roadmap.
+The repository demonstrates JWT authentication, durable tenant and membership authorization, database-enforced tenant isolation, one-time invitation handling, user ownership, durable ingestion, safe TXT/PDF/DOCX upload boundaries, tenant-scoped semantic retrieval, append-only audit events, correlation identifiers, structured logging, OpenTelemetry-compatible diagnostics, and optional grounded-answer providers. Production controls such as external identity-provider synchronization, domain verification, encrypted document storage, centralized secret management, managed key rotation, token revocation, tenant quotas, retention/deletion automation, audit archival, alerting, production malware-scanner operations, and external immutable audit storage remain on the roadmap.
 
 ## Supported Versions
 
@@ -41,7 +41,44 @@ PostgreSQL stores `tenant_id` on tenants, memberships, invitations, documents, s
 
 The final active tenant Admin cannot be removed or downgraded. The PostgreSQL path locks the relevant membership rows in the same transaction before enforcing this invariant.
 
-See [authentication and authorization](docs/AUTHENTICATION_AND_AUTHORIZATION.md), [tenant isolation](docs/TENANT_ISOLATION.md), [managed tenant lifecycle](docs/TENANT_LIFECYCLE.md), and [health, audit, and observability](docs/HEALTH_AND_OBSERVABILITY.md).
+See [authentication and authorization](docs/AUTHENTICATION_AND_AUTHORIZATION.md), [tenant isolation](docs/TENANT_ISOLATION.md), [managed tenant lifecycle](docs/TENANT_LIFECYCLE.md), [safe document extraction](docs/TEXT_EXTRACTION_PIPELINE.md), and [health, audit, and observability](docs/HEALTH_AND_OBSERVABILITY.md).
+
+## Document Upload and Extraction Boundary
+
+Uploaded documents are untrusted input. The API does not treat a filename extension or multipart MIME value as sufficient proof of format.
+
+Before durable enqueue:
+
+- upload size is limited to 10 MB;
+- only `.txt`, `.pdf`, and `.docx` are accepted;
+- extension and declared content type must agree;
+- PDF bytes must have a `%PDF-` signature and must be parseable by PdfPig;
+- PDF page count must remain within the configured limit;
+- DOCX must be a valid ZIP/OOXML package with the expected content-type manifest and `word/document.xml`;
+- DOCX archive entry count and total uncompressed bytes are bounded;
+- absolute and traversal-style DOCX archive paths are rejected;
+- DOCX XML uses `DtdProcessing.Prohibit`, no external resolver, and a maximum XML-character limit;
+- text uploads reject binary NUL data and invalid UTF-8 in the inspected prefix;
+- an optional malware scanner may reject the upload before file persistence or database enqueue.
+
+The independent worker repeats relevant safety limits instead of trusting only API-side validation. It enforces strict UTF-8, PDF page limits, DOCX archive/XML limits, total extracted-character limits, and cancellation. A textless/image-only PDF returns `ocr-required` and is not silently indexed as an empty document.
+
+The reference project uses PdfPig content-order extraction for text-bearing PDFs. PDF is a presentation format; reading order and complex layout/table reconstruction are not guaranteed by this boundary.
+
+### Malware scanning
+
+`FileThreatScanning:Provider=Disabled` is the explicit local default. No malware service is bundled or contacted in that mode, and `/health` reports the selected provider.
+
+`FileThreatScanning:Provider=ClamAv` uses the clamd TCP `INSTREAM` protocol. When enabled:
+
+- a clean `OK` verdict allows upload processing to continue;
+- a `FOUND` verdict rejects the upload with the controlled `malware-detected` code;
+- timeout, socket/I/O failure, or an unexpected scanner response fails closed with `malware-scanner-unavailable`;
+- raw scanner responses and signature names are not returned, logged, audited, or recorded as metric dimensions.
+
+A production deployment must operate its scanner as a separately secured service with current signatures, restricted network access, health/availability monitoring, and an explicit failure policy. Enabling the integration point alone is not equivalent to operating a production malware-defense program.
+
+Password-protected documents, OCR execution, content disarm/reconstruction, sandboxed rendering, and legacy Office formats remain unsupported.
 
 ## Invitation Security
 
@@ -70,9 +107,11 @@ The public `document-api` container receives `document_app` and `document_platfo
 
 ## Audit Boundary
 
-The audit table grants application roles only the required `SELECT` and `INSERT` privileges. Database triggers record document and ingestion state changes in the same transaction. Application audit events add action, result count, duration, correlation ID, and trace ID without storing document text, source chunks, search queries, questions, generated answers, provider response bodies, invitation tokens, bearer tokens, or file content.
+The audit table grants application roles only the required `SELECT` and `INSERT` privileges. Database triggers record document and ingestion state changes in the same transaction. Application audit events add action, result count, duration, correlation ID, and trace ID without storing document text, source chunks, search queries, questions, generated answers, provider response bodies, invitation tokens, bearer tokens, file content, malware-signature names, or raw scanner responses.
 
 Lifecycle audit events record tenant provisioning/status changes, membership role/removal operations, and invitation creation/acceptance/revocation. They store bounded identifiers and outcomes but no invitation secret.
+
+Successful upload audit records may include bounded content type, size, and scanner provider/status values. They do not include the original document bytes, extracted text, scanner response, or scanner signature name.
 
 ## Correlation and Telemetry Safety
 
@@ -84,6 +123,7 @@ Telemetry tags and metrics avoid user identifiers, file names, query text, quest
 - document or source-chunk content;
 - search queries, questions, or generated answers;
 - provider response bodies or API keys;
+- malware scanner response bodies or signature names;
 - database passwords or full connection strings;
 - uploaded file bytes.
 
@@ -98,9 +138,10 @@ The default Docker Compose configuration is for local development only.
 - The demo can provision a local tenant and membership using development PlatformAdmin/Admin tokens.
 - PostgreSQL, Redis, and the AI service expose local ports for debugging.
 - Existing data is mapped to explicit legacy tenants/memberships during migration and must be reviewed.
-- Uploaded content must be treated as untrusted input.
-- Invitation delivery, encrypted storage, malware scanning, audit retention, and production telemetry storage are not implemented.
-- Use a secret manager, TLS, restricted networking, managed identity, and independently deployable service identities before production deployment.
+- Uploaded content must be treated as untrusted input even after format inspection.
+- Local malware scanning is deliberately disabled unless a ClamAV endpoint is configured; the stack does not bundle a scanner daemon.
+- Invitation delivery, encrypted storage, audit retention, and production telemetry storage are not implemented.
+- Use a secret manager, TLS, restricted networking, managed identity, independently deployable service identities, and an operated malware-scanning boundary before production deployment.
 
 ## Tenant Deployment Requirements
 
@@ -156,7 +197,9 @@ For any deployment derived from this project:
 - keep PostgreSQL and Redis off the public internet;
 - apply database backups, retention rules, and deletion policies appropriate to the data;
 - retain the separated worker trust boundary rather than copying its credential into the public API;
-- secure collector and telemetry-backend endpoints.
+- secure collector and telemetry-backend endpoints;
+- operate malware-scanning infrastructure with current signatures and restricted connectivity when enabled;
+- monitor parser/scanner failures and review configured file, archive, page, XML, extraction, and processing-time limits.
 
 ## AI-Specific Considerations
 
