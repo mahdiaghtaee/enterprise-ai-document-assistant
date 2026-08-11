@@ -65,6 +65,12 @@ services:
       DocumentProcessing__MaxDocxExpandedBytes: ${DOCUMENT_MAX_DOCX_EXPANDED_BYTES:-52428800}
       DocumentProcessing__MaxExtractedCharacters: ${DOCUMENT_MAX_EXTRACTED_CHARACTERS:-1000000}
       DocumentProcessing__MaxDocxXmlCharacters: ${DOCUMENT_MAX_DOCX_XML_CHARACTERS:-5000000}
+      AuditRetention__Enabled: ${AUDIT_RETENTION_ENABLED:-false}
+      AuditRetention__RetentionDays: ${AUDIT_RETENTION_DAYS:-90}
+      AuditRetention__BatchSize: ${AUDIT_RETENTION_BATCH_SIZE:-1000}
+      AuditRetention__MaxBatchesPerRun: ${AUDIT_RETENTION_MAX_BATCHES:-10}
+      AuditRetention__Interval: ${AUDIT_RETENTION_INTERVAL:-1.00:00:00}
+      AuditRetention__InitialDelay: ${AUDIT_RETENTION_INITIAL_DELAY:-00:01:00}
       OpenTelemetry__ServiceName: enterprise-document-assistant-worker
       OpenTelemetry__ServiceVersion: ${SERVICE_VERSION:-dev}
       OpenTelemetry__OtlpEndpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
