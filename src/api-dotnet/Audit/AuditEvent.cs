@@ -13,6 +13,7 @@ public static class AuditEventTypes
     public const string DocumentSearchExecuted = "document.search_executed";
     public const string DocumentAskExecuted = "document.ask_executed";
     public const string AuditEventsRead = "audit.events_read";
+    public const string AuditIntegrityVerified = "audit.integrity_verified";
     public const string TenantProvisioned = "tenant.provisioned";
     public const string TenantDeactivated = "tenant.deactivated";
     public const string TenantReactivated = "tenant.reactivated";
@@ -108,12 +109,15 @@ public sealed record AuditEventRecord(
     string Outcome,
     string CorrelationId,
     string? TraceId,
-    IReadOnlyDictionary<string, object?> Details);
+    IReadOnlyDictionary<string, object?> Details,
+    bool IsArchived = false,
+    DateTimeOffset? ArchivedAt = null);
 
 public sealed record AuditEventQuery(
     string? TenantId,
     bool BypassTenantIsolation,
-    int Limit = 100)
+    int Limit = 100,
+    bool IncludeArchived = true)
 {
     public void Validate()
     {
@@ -128,3 +132,20 @@ public sealed record AuditEventQuery(
         }
     }
 }
+
+public sealed record AuditIntegrityQuery(
+    string TenantId,
+    bool BypassTenantIsolation)
+{
+    public string ValidateAndNormalize()
+    {
+        return TenantIsolation.Normalize(TenantId);
+    }
+}
+
+public sealed record AuditIntegrityResult(
+    string TenantId,
+    bool IsValid,
+    long CheckedCount,
+    long? FirstBrokenSequence,
+    long HeadSequence);
