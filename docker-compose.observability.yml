@@ -1,14 +1,14 @@
 services:
   document-api:
     environment:
-      OpenTelemetry__OtlpEndpoint: http://otel-collector:4318
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
     depends_on:
       otel-collector:
         condition: service_started
 
   document-worker:
     environment:
-      OpenTelemetry__OtlpEndpoint: http://otel-collector:4318
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
     depends_on:
       otel-collector:
         condition: service_started
