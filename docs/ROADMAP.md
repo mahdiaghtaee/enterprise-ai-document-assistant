@@ -12,8 +12,9 @@ This roadmap separates completed capabilities from planned work. A milestone is 
 - deterministic local embeddings
 - semantic search and grounded Ask endpoints
 - managed tenant lifecycle and durable membership enforcement
+- tamper-evident tenant audit chains, bounded audit archival, and opt-in operational observability
 - sample documents and end-to-end demo script
-- .NET, Python, PostgreSQL, container, document-format, CodeQL, and Dependency Review checks
+- .NET, Python, PostgreSQL, container, document-format, operational-observability, CodeQL, and Dependency Review checks
 
 ## Milestone 1 — Persistent Semantic Index (Completed in v0.2.0)
 
@@ -75,19 +76,19 @@ Remaining identity-provider work:
 - SCIM or equivalent enterprise provisioning integration;
 - device, conditional-access, and break-glass controls.
 
-## Milestone 4 — Auditability and Observability (Completed Foundation)
+## Milestone 4 — Auditability and Operational Observability (Completed Operational Foundation)
 
-Goal: make security-sensitive activity and failures traceable and operationally diagnosable.
+Goal: make security-sensitive activity traceable, tamper-evident, retainable, and operationally diagnosable without turning telemetry into a sensitive-content store.
 
-Tracked by completed issue #33.
+Tracked by completed issue #33 for the initial audit/telemetry foundation and issue #86 for audit operations.
 
-Delivered:
+Delivered audit and telemetry foundation:
 
 - validated `X-Correlation-ID` generation, response echo, log-safe diagnostic linkage, and service propagation;
 - W3C trace-context propagation through OpenTelemetry HTTP instrumentation;
 - structured JSON console logging with trace, span, correlation digest, tenant, document, and job context;
 - OpenTelemetry tracing for ASP.NET Core, HttpClient, FastAPI, Search, Ask, upload, and background ingestion;
-- metrics for authorization denials, uploads, retrieval, processing duration, retries, failures, and recovery;
+- metrics for authorization denials, uploads, retrieval, answer generation, processing duration, retries, failures, and recovery;
 - optional OTLP/HTTP export without a mandatory local collector;
 - liveness and dependency-aware readiness endpoints;
 - append-only PostgreSQL `audit_events` storage;
@@ -97,14 +98,45 @@ Delivered:
 - explicit exclusion of document text, queries, questions, invitation tokens, bearer tokens, and file content from audit metadata;
 - .NET, Python, PostgreSQL, and Compose verification of correlation, audit isolation, append-only privileges, and readiness.
 
+Delivered audit operations:
+
+- database-generated per-tenant SHA-256 audit chains with sequence, previous hash, and event hash;
+- transactionally serialized same-tenant inserts and chain-head state to prevent concurrent chain forks;
+- deterministic migration backfill for existing audit rows;
+- tenant-RLS protected `audit_event_archive` storage that preserves original event IDs and chain fields;
+- integrity verification spanning active and archived tiers;
+- tenant-scoped Admin verification plus explicit-tenant PlatformAdmin verification through `GET /api/audit/integrity`;
+- archived history included in authorized audit queries with an active-only option;
+- bounded `SECURITY DEFINER` archival callable only by the privileged Worker identity;
+- retention automation with configurable age, batch size, maximum batches, cadence, and safe disabled default;
+- continued denial of direct application/platform/worker `UPDATE`, `DELETE`, and `TRUNCATE` privileges on active/archive audit tables;
+- audit integrity, archival, and failure telemetry without tenant/user/document/content metric labels;
+- opt-in OpenTelemetry Collector, Prometheus, Grafana, and Alertmanager Compose override with pinned images;
+- version-controlled Prometheus recording/alert rules, Grafana datasource/dashboard provisioning, initial SLO guardrails, and incident runbooks;
+- backup/restore verification procedure that includes active audit, archive, and chain-head integrity;
+- a dedicated operational-observability CI workflow covering schema/privileges, archive continuity, OTLP-to-Prometheus delivery, alert-rule loading, and Grafana provisioning;
+- PostgreSQL tests for concurrent inserts, tamper detection, archive continuity, cross-tenant verifier denial, and direct-mutation denial.
+
+Current operational boundary:
+
+- the PostgreSQL hash chain is tamper-evident but is not externally immutable; a database superuser able to rewrite rows, hashes, and chain heads remains inside the trust boundary;
+- audit archival is active-tier retention, not legal deletion or immutable archival;
+- retention is disabled by default;
+- the committed Alertmanager receiver is local-only and sends no external notification;
+- the optional Compose observability stack is a development/pre-production reference, not a highly available production telemetry backend;
+- the committed 99.9% availability and 750 ms p95 targets are local/pre-production engineering guardrails, not production service commitments;
+- the current availability alert is a short-window guard, not a production-calibrated multi-window error-budget burn implementation;
+- the runbook defines backup/restore exercises but no RPO/RTO is claimed without repeated measured evidence.
+
 Remaining operational work:
 
-- production collector and telemetry backend selection;
-- dashboards, alert rules, service-level objectives, and on-call runbooks;
-- audit retention, archival, legal hold, export, and deletion automation;
-- tamper-evident hashing or external immutable audit storage;
-- load-based trace sampling and metric-cardinality review;
-- backup and restore exercises for audit and document data.
+- independently controlled immutable audit anchoring or signed chain-head checkpoints where non-repudiation is required;
+- jurisdiction-specific archive purge, legal hold, export, subject-access, and deletion automation;
+- production telemetry backend/HA topology, storage sizing, retention, and disaster recovery;
+- external notification/paging integrations with secret-managed receivers and explicit ownership;
+- production-calibrated multi-window error-budget burn rules and route-specific SLO populations;
+- load-based trace sampling and measured metric-cardinality budgets;
+- repeated backup/restore exercises sufficient to establish reviewed RPO/RTO values.
 
 ## Milestone 5 — Retrieval Evaluation and Grounded Answer Providers (Completed Foundation)
 
@@ -247,12 +279,27 @@ Remaining document-processing work:
 - file-at-rest encryption and object-storage lifecycle policies;
 - representative document-format corpus covering large, multilingual, malformed, and adversarial files.
 
+## Next Priority — Representative Multilingual Evaluation
+
+Goal: expand the currently small synthetic retrieval/answer baselines into a reviewed, representative, multilingual quality suite before making broader provider or accuracy claims.
+
+Planned work:
+
+- versioned English/Persian and mixed-language document/query/answer cases;
+- duplicate, long-document, ambiguous, adversarial, and format-derived cases;
+- human-reviewed relevance, answer-support, completeness, and citation-correctness judgments;
+- category-level metrics and confidence intervals;
+- explicit regression thresholds reviewed against measured baseline behavior;
+- one approved external-provider comparison using non-sensitive evaluation data only;
+- no production-accuracy claim unless the evaluated corpus and statistical evidence justify it.
+
 ## Explicitly Deferred
 
-The following work remains deferred until secret management, retention, and operational foundations are complete:
+The following work remains deferred until the corresponding production controls and measured requirements exist:
 
 - multi-tenant billing;
-- complex administration dashboards;
+- complex administration dashboards beyond the operational dashboard;
 - autonomous agents;
 - provider-specific optimizations without measured need;
-- unsupported claims about production accuracy, confidentiality, or scale.
+- external immutable audit anchoring without a reviewed trust/operator model;
+- unsupported claims about production accuracy, confidentiality, availability, or scale.
