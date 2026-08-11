@@ -2,21 +2,24 @@
 
 [![CI](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/ci.yml)
 [![Audit and observability](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/observability.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/observability.yml)
+[![Operational observability](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/operational-observability.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/operational-observability.yml)
 [![Retrieval quality](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/retrieval-evaluation.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/retrieval-evaluation.yml)
 [![Grounded answers](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/answer-evaluation.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/answer-evaluation.yml)
 [![Safe document formats](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/document-formats.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/document-formats.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A local-first reference implementation for managed tenant document ingestion, durable background processing, persistent semantic retrieval, provider-optional grounded answers, auditable operations, and reproducible quality evaluation.
+A local-first reference implementation for managed tenant document ingestion, durable background processing, persistent semantic retrieval, provider-optional grounded answers, tamper-evident audit operations, and reproducible quality evaluation.
 
-The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The default pipeline is deterministic and runs without paid AI credentials, a malware-scanning service, or a telemetry collector. The public API and privileged ingestion worker run as separate services with different database identities.
+The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The default pipeline is deterministic and runs without paid AI credentials, a malware-scanning service, audit-retention deletion, or a telemetry collector. The public API and privileged ingestion worker run as separate services with different database identities.
 
 ```text
 JWT subject/tenant -> Durable tenant + membership policy -> Tenant RLS -> Safe upload gates
                                                             |
 Shared document volume <- Public API ------------------------+-> Privileged worker
-                                                                  |
-                                        TXT/PDF/DOCX extract/chunk/embed -> pgvector
+          |                                                       |
+          |                             TXT/PDF/DOCX extract/chunk/embed -> pgvector
+          |                                                       |
+          +-> Tamper-evident audit chain -> bounded archive       |
                                                                   |
 Tenant-scoped retrieval -> Evidence/citation gate -> Answer + sources
           |                         |
@@ -39,7 +42,7 @@ Implemented:
 - one-time invitation creation, listing, revocation, expiry, and authenticated acceptance
 - SHA-256 invitation-token digests with plaintext returned only once
 - immutable document owner and tenant identity derived from JWT claims
-- forced PostgreSQL Row-Level Security on tenants, memberships, invitations, documents, semantic chunks, ingestion jobs, and audit events
+- forced PostgreSQL Row-Level Security on tenants, memberships, invitations, documents, semantic chunks, ingestion jobs, active audit events, and archived audit events
 - separate non-superuser `document_app`, `document_platform`, and `document_privileged` roles
 - a public API container without the privileged worker credential
 - an independent ingestion-worker container with no published host port
@@ -64,36 +67,47 @@ Implemented:
 - controlled timeout, rate-limit, provider-authentication, malformed-response, and ungrounded-response errors
 - source metadata preserved independently from provider-generated text and failures
 - validated `X-Correlation-ID` generation, echo, log-safe diagnostic linkage, and service propagation
-- OpenTelemetry tracing and metrics for ASP.NET Core, HttpClient, runtime, Search, Ask, provider generation, upload, and worker processing
+- OpenTelemetry tracing and metrics for ASP.NET Core, HttpClient, runtime, Search, Ask, provider generation, upload, worker processing, and audit operations
 - FastAPI OpenTelemetry request instrumentation and correlation propagation
 - optional OTLP/HTTP export while retaining collector-free local execution
 - structured JSON console logging with trace, span, correlation digest, document, tenant, and job context
 - liveness and dependency-aware readiness endpoints
 - append-only PostgreSQL audit ledger with forced tenant RLS
-- atomic trigger audit for document and ingestion-job state changes
-- correlated application audit for document, answer, tenant, membership, invitation, and audit operations
+- database-generated per-tenant audit sequence, previous hash, and SHA-256 event hash
+- transactionally serialized same-tenant audit-chain heads to prevent concurrent forks
+- deterministic backfill of existing audit history
+- tenant-RLS protected `audit_event_archive` that preserves original event IDs and chain fields
+- integrity verification spanning active and archived audit rows
+- `GET /api/audit/integrity` with own-tenant Admin scope and explicit-tenant PlatformAdmin scope
+- bounded privileged audit archival without direct application-table DELETE privileges
+- Worker-hosted audit-retention automation with a safe disabled default and configurable age/batch/cadence limits
+- correlated application audit for document, answer, tenant, membership, invitation, integrity, and audit-read operations
 - tenant-admin audit visibility and explicit PlatformAdmin cross-tenant visibility
+- an opt-in OpenTelemetry Collector, Prometheus, Grafana, and Alertmanager Compose override
+- version-controlled Prometheus recording/alert rules, Grafana datasource/dashboard provisioning, initial SLO guardrails, and incident/restore runbooks
 - deterministic eight-dimensional local embeddings and configurable in-memory or PostgreSQL/pgvector semantic index
 - versioned tenant-safe retrieval corpus and relevance judgments
 - repeatable Precision@K, Recall@K, MRR, empty-query, and local latency evaluation
 - versioned grounded-answer cases for citation, insufficient evidence, and provider-failure gates
 - machine-readable regression baselines, non-zero failure exit codes, and retained CI artifacts
-- Docker Compose verification, .NET/Python tests, coverage floors, direct PostgreSQL RLS tests, CodeQL, and Dependency Review
+- Docker Compose verification, operational-observability integration, .NET/Python tests, coverage floors, direct PostgreSQL RLS/audit tests, CodeQL, and Dependency Review
 
 Not implemented yet:
 
 - trusted email/SMS invitation delivery or domain verification
 - external identity-provider or SCIM synchronization
 - managed signing-key rotation, identity-provider session revocation, or device controls
-- per-tenant quotas, usage governance, retention, export, deletion, or legal hold
-- production telemetry backend, dashboards, alerts, or service-level objectives
-- audit archival, tamper-evident hashing, or external immutable storage
+- per-tenant quotas, organization-level retention/export/deletion/legal-hold workflows, or recovery automation
+- production HA telemetry backend/storage, secret-managed external paging receivers, or production-calibrated multi-window SLO burn rules
+- independently anchored/signed audit chain heads or external immutable audit storage
+- jurisdiction-specific archive purge, legal hold, subject-access, and deletion automation
+- proven RPO/RTO values from repeated restore exercises
 - encrypted document storage and centralized secret management
 - approved production provider account or provider-specific factual-accuracy validation
-- representative production-scale or statistically validated retrieval/answer evaluation
+- representative production-scale or statistically validated multilingual retrieval/answer evaluation
 - OCR execution, rich PDF layout/table reconstruction, password-protected-document workflows, or a bundled production malware engine
 
-Managed membership checks, database isolation, file-format gates, grounding gates, and durable auditability reduce disclosure and accountability risks, but this reference project must not be used for confidential or regulated documents until identity-provider lifecycle, encryption, secret management, retention, invitation delivery, malware operations, external-provider governance, and operational review are completed. See [SECURITY.md](SECURITY.md).
+Managed membership checks, database isolation, file-format gates, grounding gates, tamper-evident audit chains, and bounded operational telemetry reduce disclosure and accountability risks, but this reference project must not be used for confidential or regulated documents until identity-provider lifecycle, encryption, secret management, legal retention, invitation delivery, malware operations, external-provider governance, immutable-audit requirements, and production operational review are completed. See [SECURITY.md](SECURITY.md).
 
 ## Quick Start
 
@@ -101,7 +115,7 @@ Managed membership checks, database isolation, file-format gates, grounding gate
 
 - Docker Desktop or Docker Engine with Compose
 - Git
-- Python 3.11+ for the local token helper, demo, and format smoke test
+- Python 3.11+ for the local token helper, demo, format smoke test, and observability-asset validation
 - .NET SDK 8.0+ for local tests and quality evaluation
 
 ### Start the split stack
@@ -113,7 +127,7 @@ cp .env.example .env   # Windows PowerShell: Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Docker Compose starts separate `document-api` and `document-worker` services. The API receives tenant-runtime and narrow platform-management database credentials. Only the worker receives the privileged ingestion credential. Both services mount the same named document-storage volume. Malware scanning is explicitly `Disabled` by default; `/health` reports the selected file-threat-scanning provider.
+Docker Compose starts separate `document-api` and `document-worker` services. The API receives tenant-runtime and narrow platform-management database credentials. Only the worker receives the privileged ingestion credential. Both services mount the same named document-storage volume. Malware scanning and audit retention are explicitly disabled by default; `/health` reports the selected scanner provider and safe retention state.
 
 | Service | Address |
 |---|---|
@@ -124,6 +138,26 @@ Docker Compose starts separate `document-api` and `document-worker` services. Th
 | API readiness | `http://localhost:5000/health/ready` |
 | FastAPI health | `http://localhost:8000/health` |
 | Ingestion worker | Internal only; no host port |
+
+### Start the optional operational-observability stack
+
+The default stack remains collector-free. For local/pre-production operational validation:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+```
+
+Additional local endpoints:
+
+| Service | Address |
+|---|---|
+| OpenTelemetry Collector OTLP/HTTP | `http://localhost:4318` |
+| Collector health | `http://localhost:13133` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3001` |
+| Alertmanager | `http://localhost:9093` |
+
+The committed Alertmanager receiver is `local-null`; it does not send notifications externally. Grafana credentials in `.env.example` are development-only.
 
 Run the managed end-to-end demo:
 
@@ -177,7 +211,13 @@ Run the grounded-answer evaluation:
 dotnet run --project tools/answer-evaluation/EnterpriseDocumentAssistant.AnswerEvaluation.csproj
 ```
 
-The commands write machine-readable reports under `artifacts/` and return a non-zero exit code when committed thresholds regress.
+Validate the version-controlled operational assets:
+
+```bash
+python scripts/verify_observability_assets.py
+```
+
+The evaluation commands write machine-readable reports under `artifacts/` and return a non-zero exit code when committed thresholds regress.
 
 Detailed setup and implementation guidance:
 
@@ -187,7 +227,9 @@ Detailed setup and implementation guidance:
 - [Provider-backed grounded Ask endpoint](docs/RAG_ASK_ENDPOINT.md)
 - [Authentication and authorization](docs/AUTHENTICATION_AND_AUTHORIZATION.md)
 - [Tenant isolation](docs/TENANT_ISOLATION.md)
-- [Health, audit, and observability](docs/HEALTH_AND_OBSERVABILITY.md)
+- [Health, audit, retention, and observability](docs/HEALTH_AND_OBSERVABILITY.md)
+- [SLO and alerting foundation](docs/SLO_AND_ALERTING.md)
+- [Audit and reliability operations runbook](docs/runbooks/AUDIT_OPERATIONS.md)
 - [Retrieval quality evaluation](docs/RETRIEVAL_EVALUATION.md)
 
 ## Tenant Lifecycle Example
@@ -234,6 +276,24 @@ Content-Type: application/json
 
 Removing the membership or disabling the tenant blocks the next protected request. The final active tenant Admin cannot be removed or downgraded.
 
+## Audit Integrity Example
+
+Tenant Admin verifies only its authenticated tenant:
+
+```http
+GET /api/audit/integrity
+Authorization: Bearer <tenant-admin-token>
+```
+
+PlatformAdmin must name a tenant explicitly:
+
+```http
+GET /api/audit/integrity?tenantId=acme
+Authorization: Bearer <platform-admin-token>
+```
+
+The response returns integrity status and sequence/count metadata only. It does not expose audit event payloads or hashes. `GET /api/audit/events` includes archived rows by default; `includeArchived=false` limits the query to active rows.
+
 ## External Answer Provider
 
 The safe default is:
@@ -264,7 +324,9 @@ flowchart LR
     G1 --> MS[Optional malware scan]
     MS --> T[Tenant-local DB context]
     T --> P[(PostgreSQL forced RLS)]
-    A --> L[(Append-only audit ledger)]
+    A --> L[(Active audit ledger)]
+    L --> HC[Per-tenant hash chain]
+    HC --> AR[(RLS audit archive)]
     A --> S[(Shared document volume)]
     A --> Q[(Pending ingestion job)]
     Q --> W[Independent privileged worker]
@@ -278,34 +340,38 @@ flowchart LR
     G --> O[Optional OpenAI-compatible provider]
     R --> RE[Retrieval evaluation]
     G --> AE[Answer evaluation]
-    A --> F[FastAPI boundary]
-    A --> OT[OpenTelemetry and structured logs]
+    A --> OT[Optional OTLP export]
     W --> OT
-    F --> OT
+    OT --> COL[Optional Collector]
+    COL --> PM[Prometheus]
+    PM --> GF[Grafana]
+    PM --> AM[Alertmanager]
 ```
 
 JWT claims identify the caller and requested tenant. Durable tenant and membership state determines whether access remains active. Runtime PostgreSQL transactions set transaction-local tenant context; forced RLS independently limits tenant data. `User` adds an owner filter, durable `Admin` removes only that owner filter inside one tenant, and `PlatformAdmin` uses the narrow platform role.
 
 Upload filename extension, declared MIME, actual PDF/DOCX structure, configured extraction limits, and optional malware verdict are checked before durable enqueue. The worker re-applies format-specific processing limits before indexing. Scanner responses, extracted text, document contents, and threat signature names are not audit or metric dimensions.
 
+Audit rows are chained per tenant inside PostgreSQL. Active-to-archive movement preserves event identity and chain fields. Application roles retain append-only semantics; only the privileged Worker may invoke the bounded archival function, and retention remains disabled by default. The chain is tamper-evident, not externally immutable against a database superuser able to rewrite rows and chain-head state.
+
 Retrieved sources are selected before answer generation. The provider never supplies document identifiers or source text in the response contract. The grounding service accepts an answer only when it cites supplied request-local source markers. Missing, weak, or conflicting evidence produces an explicit non-answer.
 
-Every response carries a validated `X-Correlation-ID`. Audit and telemetry record bounded operational metadata but exclude question text, source text, generated answer text, invitation tokens, bearer tokens, API keys, and provider response bodies.
+Every response carries a validated `X-Correlation-ID`. Audit and telemetry record bounded operational metadata but exclude question text, source text, generated answer text, invitation tokens, bearer tokens, API keys, provider bodies, raw scanner responses, and sensitive/high-cardinality metric labels.
 
 ## API Security and Audit Behavior
 
 Every `/api/documents` endpoint requires `Authorization: Bearer <token>`. Health endpoints remain public.
 
-For managed document operations:
+For managed operations:
 
 - `User`: active membership and own documents inside an active tenant;
-- `Admin`: active durable Admin membership and all owners inside an active tenant;
-- `PlatformAdmin`: cross-tenant read/platform operations through the narrow platform path;
+- `Admin`: active durable Admin membership and all owners/audit history/integrity status inside an active tenant;
+- `PlatformAdmin`: explicit cross-tenant platform/read and explicit-tenant integrity paths;
 - missing token: `401`;
 - invalid claims, absent/removed membership, disabled tenant, or stale elevated role: `403`;
 - document outside authorized owner or tenant scope: `404`.
 
-Tenant-management APIs require durable Admin membership. Invitation acceptance is the only tenant route that intentionally works before membership exists. `GET /api/audit/events` requires durable `Admin` or `PlatformAdmin`.
+Tenant-management APIs require durable Admin membership. Invitation acceptance is the only tenant route that intentionally works before membership exists. `GET /api/audit/events` and `GET /api/audit/integrity` require durable `Admin` or `PlatformAdmin`.
 
 ## Verification
 
@@ -324,7 +390,14 @@ CI verifies:
 - disabled, clean, detected, and unavailable malware-scanner behavior without a real scanner dependency;
 - successful retrieval, lifecycle state, and persistence after API/worker restart;
 - valid and invalid correlation identifiers in ASP.NET Core and FastAPI;
-- audit constraints, policies, triggers, append-only privileges, tenant isolation, and secret exclusion;
+- audit constraints, RLS policies, append-only privileges, tenant isolation, and secret exclusion;
+- concurrent per-tenant audit-chain insertion without sequence forks;
+- tamper detection, active/archive chain continuity, and cross-tenant verifier denial;
+- denial of direct application/platform/worker mutation of active/archive audit tables;
+- bounded retention batching, failure, configuration, and cancellation behavior;
+- optional Collector/Prometheus/Grafana/Alertmanager Compose startup;
+- OTLP ASP.NET metrics reaching Prometheus;
+- recording/alert rule loading and version-controlled Grafana provisioning;
 - retrieval metric calculations, corpus categories, and committed thresholds;
 - deterministic and scripted-provider answer paths;
 - insufficient-evidence and invalid-citation rejection;
@@ -333,40 +406,46 @@ CI verifies:
 
 ## Current Limitations
 
+- The audit hash chain is tamper-evident but not externally immutable against a database superuser that can rewrite events, hashes, and chain heads together.
+- Audit archival is active-tier retention, not legal deletion; purge/legal-hold/export/subject-access policy remains deployment work.
+- Retention is disabled by default.
+- The optional Collector/Prometheus/Grafana/Alertmanager stack is a development/pre-production reference rather than a production HA telemetry backend.
+- The committed Alertmanager receiver sends nothing externally; production paging and secret-managed receivers are not bundled.
+- The 99.9% availability and 750 ms p95 targets are engineering guardrails, not production commitments; multi-window burn-rate calibration remains future work.
+- Backup/restore procedures exist, but no RPO/RTO is claimed without repeated measured exercises.
 - TXT, text-bearing PDF, and DOCX extraction are implemented; scanned/image-only PDFs return `ocr-required` because OCR execution is not bundled.
 - PDF reading order remains layout-dependent and rich layout/table reconstruction is not implemented.
 - The local default reports malware scanning as disabled; production scanner deployment, signature updates, network policy, and operational monitoring are external responsibilities.
 - Password-protected document workflows are not implemented.
 - Invitation email/SMS delivery, domain verification, and recipient proofing are not implemented.
 - External IdP/SCIM synchronization, managed key rotation, identity-provider session revocation, and device controls remain absent.
-- Per-tenant quotas, retention, export, deletion, legal hold, and organization recovery are not implemented.
-- A collector, telemetry storage, dashboards, alerts, audit retention, and tamper-evident archival are not bundled.
-- Encrypted storage and centralized secret management remain absent.
+- Per-tenant quotas, organization recovery, legal retention/export/deletion, encrypted storage, and centralized secret management remain absent.
 - The deterministic embedding model and small synthetic evaluation datasets do not establish production accuracy.
 - The OpenAI-compatible path validates protocol and grounding controls without calling or endorsing a real provider.
 - Docker Compose uses development defaults and exposes local infrastructure ports.
 
-The next engineering priorities are audit retention/operational dashboards, larger reviewed multilingual evaluation, production identity/secret integration, and OCR/advanced document-processing operations.
+The next engineering priority is a **larger reviewed multilingual retrieval/answer evaluation corpus and one approved non-sensitive provider comparison**, followed by production identity/secret integration and reviewed OCR/advanced document-processing work.
 
 ## Repository Structure
 
 | Area | Responsibility |
 |---|---|
-| `src/api-dotnet/` | Authentication, tenant lifecycle, authorization, audit, safe file gates, API/worker modes, providers, persistence, and retrieval |
+| `src/api-dotnet/` | Authentication, tenant lifecycle, authorization, audit/integrity/retention, safe file gates, API/worker modes, providers, persistence, and retrieval |
 | `src/ai-service-python/` | Correlated FastAPI and OpenTelemetry boundary for future Python-specific processing |
 | `src/web-ui/` | Authenticated demonstration interface |
-| `infra/postgres/` | PostgreSQL roles, lifecycle, RLS, audit, ownership, pgvector, and ingestion initialization |
+| `infra/postgres/` | PostgreSQL roles, lifecycle, RLS, audit chains/archive, ownership, pgvector, and ingestion initialization |
+| `infra/observability/` | Collector, Prometheus, Alertmanager, Grafana provisioning, dashboard, and alert/SLO rules |
 | `evaluation/retrieval/` | Versioned retrieval corpus, relevance judgments, baseline, and thresholds |
 | `evaluation/answers/` | Versioned grounding, insufficient-evidence, and provider-failure cases |
 | `tools/retrieval-evaluation/` | Provider-free retrieval evaluation command and metrics |
 | `tools/answer-evaluation/` | Credential-free grounded-answer evaluation command and report |
-| `tests/api-dotnet/` | API, lifecycle, security, audit, document-format, provider, RLS, pipeline, and PostgreSQL tests |
-| `scripts/` | Tenant-aware token helper, managed demo, and document-format Compose smoke test |
-| `docs/` | Architecture, lifecycle, security, extraction, migrations, providers, observability, evaluation, operations, and roadmap |
+| `tests/api-dotnet/` | API, lifecycle, security, audit, retention, document-format, provider, RLS, pipeline, and PostgreSQL tests |
+| `scripts/` | Tenant-aware token helper, managed demo, document-format smoke test, and observability-asset validation |
+| `docs/` | Architecture, lifecycle, security, extraction, migrations, providers, observability, SLOs, runbooks, evaluation, operations, and roadmap |
 
 ## Contributing
 
-Focused contributions are welcome for identity-provider synchronization, tenant governance, representative evaluation corpora, approved provider comparisons, audit retention, OCR/document-layout processing, and production malware operations.
+Focused contributions are welcome for representative multilingual evaluation corpora, approved provider comparisons, identity-provider synchronization, tenant governance, external immutable audit anchoring, production telemetry operations, OCR/document-layout processing, and production malware operations.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report security-sensitive findings through [SECURITY.md](SECURITY.md).
 
