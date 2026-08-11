@@ -106,5 +106,35 @@ public static class ApplicationTelemetry
         unit: "{event}",
         description: "Number of application audit persistence failures.");
 
+    public static readonly Counter<long> AuditIntegrityChecks = Meter.CreateCounter<long>(
+        "document_assistant.audit.integrity_checks",
+        unit: "{check}",
+        description: "Number of tamper-evident audit-chain verification checks.");
+
+    public static readonly Counter<long> AuditIntegrityFailures = Meter.CreateCounter<long>(
+        "document_assistant.audit.integrity_failures",
+        unit: "{failure}",
+        description: "Number of audit-chain verification failures.");
+
+    public static readonly Counter<long> AuditArchiveRuns = Meter.CreateCounter<long>(
+        "document_assistant.audit.archive_runs",
+        unit: "{run}",
+        description: "Number of bounded audit-retention archive runs.");
+
+    public static readonly Counter<long> AuditArchivedEvents = Meter.CreateCounter<long>(
+        "document_assistant.audit.archived_events",
+        unit: "{event}",
+        description: "Number of audit events moved to the archive tier.");
+
+    public static readonly Counter<long> AuditArchiveFailures = Meter.CreateCounter<long>(
+        "document_assistant.audit.archive_failures",
+        unit: "{failure}",
+        description: "Number of audit-retention archive failures.");
+
+    public static readonly Histogram<double> AuditArchiveDuration = Meter.CreateHistogram<double>(
+        "document_assistant.audit.archive_duration",
+        unit: "ms",
+        description: "Duration of bounded audit-retention archive runs in milliseconds.");
+
     public static KeyValuePair<string, object?> Tag(string name, object? value) => new(name, value);
 }
