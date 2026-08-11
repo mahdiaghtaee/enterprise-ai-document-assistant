@@ -63,7 +63,7 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
             throw new InvalidOperationException("The audit event insert did not return a row.");
         }
 
-        var record = ReadRecord(reader);
+        var record = ReadRecord(reader, includesArchiveMetadata: false);
         await reader.DisposeAsync();
         await transaction.CommitAsync(cancellationToken);
         ApplicationTelemetry.AuditEventsPersisted.Add(
@@ -79,15 +79,37 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
         ArgumentNullException.ThrowIfNull(query);
         query.Validate();
 
-        const string sql = """
-            SELECT id, occurred_at, tenant_id, actor_user_id, actor_role, event_type,
-                   action, resource_type, resource_id, outcome, correlation_id, trace_id,
-                   details::text
-            FROM audit_events
-            WHERE @tenantId IS NULL OR tenant_id = @tenantId
-            ORDER BY occurred_at DESC, id DESC
-            LIMIT @limit;
-            """;
+        var sql = query.IncludeArchived
+            ? """
+                WITH combined AS
+                (
+                    SELECT id, occurred_at, tenant_id, actor_user_id, actor_role, event_type,
+                           action, resource_type, resource_id, outcome, correlation_id, trace_id,
+                           details, FALSE AS is_archived, NULL::timestamptz AS archived_at
+                    FROM audit_events
+                    UNION ALL
+                    SELECT id, occurred_at, tenant_id, actor_user_id, actor_role, event_type,
+                           action, resource_type, resource_id, outcome, correlation_id, trace_id,
+                           details, TRUE AS is_archived, archived_at
+                    FROM audit_event_archive
+                )
+                SELECT id, occurred_at, tenant_id, actor_user_id, actor_role, event_type,
+                       action, resource_type, resource_id, outcome, correlation_id, trace_id,
+                       details::text, is_archived, archived_at
+                FROM combined
+                WHERE @tenantId IS NULL OR tenant_id = @tenantId
+                ORDER BY occurred_at DESC, id DESC
+                LIMIT @limit;
+                """
+            : """
+                SELECT id, occurred_at, tenant_id, actor_user_id, actor_role, event_type,
+                       action, resource_type, resource_id, outcome, correlation_id, trace_id,
+                       details::text, FALSE AS is_archived, NULL::timestamptz AS archived_at
+                FROM audit_events
+                WHERE @tenantId IS NULL OR tenant_id = @tenantId
+                ORDER BY occurred_at DESC, id DESC
+                LIMIT @limit;
+                """;
 
         await using var connection = new NpgsqlConnection(
             query.BypassTenantIsolation ? _elevatedConnectionString : _tenantConnectionString);
@@ -112,12 +134,67 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            records.Add(ReadRecord(reader));
+            records.Add(ReadRecord(reader, includesArchiveMetadata: true));
         }
 
         await reader.DisposeAsync();
         await transaction.CommitAsync(cancellationToken);
         return records;
+    }
+
+    public async Task<AuditIntegrityResult> VerifyIntegrityAsync(
+        AuditIntegrityQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var tenantId = query.ValidateAndNormalize();
+
+        const string sql = """
+            SELECT is_valid, checked_count, first_broken_sequence, head_sequence
+            FROM verify_audit_chain(@tenantId);
+            """;
+
+        await using var connection = new NpgsqlConnection(
+            query.BypassTenantIsolation ? _elevatedConnectionString : _tenantConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        if (!query.BypassTenantIsolation)
+        {
+            await PostgresTenantSession.ApplyAsync(
+                connection,
+                transaction,
+                tenantId,
+                cancellationToken);
+        }
+
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("tenantId", tenantId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("The audit integrity verifier did not return a result.");
+        }
+
+        var result = new AuditIntegrityResult(
+            tenantId,
+            reader.GetBoolean(0),
+            reader.GetInt64(1),
+            reader.IsDBNull(2) ? null : reader.GetInt64(2),
+            reader.GetInt64(3));
+
+        await reader.DisposeAsync();
+        await transaction.CommitAsync(cancellationToken);
+        ApplicationTelemetry.AuditIntegrityChecks.Add(
+            1,
+            ApplicationTelemetry.Tag("valid", result.IsValid));
+        if (!result.IsValid)
+        {
+            ApplicationTelemetry.AuditIntegrityFailures.Add(1);
+        }
+
+        return result;
     }
 
     private static void AddWriteParameters(NpgsqlCommand command, AuditEventWrite auditEvent)
@@ -138,7 +215,7 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
             JsonSerializer.Serialize(auditEvent.Details ?? new Dictionary<string, object?>());
     }
 
-    private static AuditEventRecord ReadRecord(NpgsqlDataReader reader)
+    private static AuditEventRecord ReadRecord(NpgsqlDataReader reader, bool includesArchiveMetadata)
     {
         var details = JsonSerializer.Deserialize<Dictionary<string, object?>>(reader.GetString(12))
             ?? new Dictionary<string, object?>();
@@ -156,6 +233,10 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
             reader.GetString(9),
             reader.GetString(10),
             reader.IsDBNull(11) ? null : reader.GetString(11),
-            details);
+            details,
+            IsArchived: includesArchiveMetadata && reader.GetBoolean(13),
+            ArchivedAt: includesArchiveMetadata && !reader.IsDBNull(14)
+                ? reader.GetFieldValue<DateTimeOffset>(14)
+                : null);
     }
 }
