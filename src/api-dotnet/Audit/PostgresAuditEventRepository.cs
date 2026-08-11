@@ -151,7 +151,7 @@ public sealed class PostgresAuditEventRepository : IAuditEventRepository
 
         const string sql = """
             SELECT is_valid, checked_count, first_broken_sequence, head_sequence
-            FROM verify_audit_chain(@tenantId);
+            FROM verify_audit_chain_scoped(@tenantId);
             """;
 
         await using var connection = new NpgsqlConnection(
