@@ -10,4 +10,8 @@ public interface IAuditEventRepository
     Task<IReadOnlyList<AuditEventRecord>> GetRecentAsync(
         AuditEventQuery query,
         CancellationToken cancellationToken);
+
+    Task<AuditIntegrityResult> VerifyIntegrityAsync(
+        AuditIntegrityQuery query,
+        CancellationToken cancellationToken);
 }
