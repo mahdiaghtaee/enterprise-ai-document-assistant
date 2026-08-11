@@ -105,23 +105,26 @@ jobs:
           done
 
           for attempt in $(seq 1 30); do
-            curl --fail --silent http://localhost:9090/api/v1/label/__name__/values > /tmp/metric-names.json
+            curl --fail --silent --get \
+              --data-urlencode 'query=http_server_request_duration_milliseconds_count' \
+              http://localhost:9090/api/v1/query > /tmp/prometheus-query.json
+
             if python3 - <<'PY'
           import json
-          with open('/tmp/metric-names.json', encoding='utf-8') as source:
+          with open('/tmp/prometheus-query.json', encoding='utf-8') as source:
               payload = json.load(source)
-          names = payload.get('data', [])
           assert payload.get('status') == 'success', payload
-          raise SystemExit(0 if any(name.startswith('http_server_request_duration') for name in names) else 1)
+          result = payload.get('data', {}).get('result', [])
+          raise SystemExit(0 if result else 1)
           PY
             then
-              echo "ASP.NET Core server metrics reached Prometheus"
+              echo "ASP.NET Core server duration metrics reached Prometheus"
               break
             fi
 
             if [ "$attempt" = "30" ]; then
-              echo "Expected ASP.NET Core server metric did not reach Prometheus"
-              cat /tmp/metric-names.json
+              echo "Expected ASP.NET Core server duration metric did not reach Prometheus"
+              cat /tmp/prometheus-query.json
               exit 1
             fi
             sleep 2
