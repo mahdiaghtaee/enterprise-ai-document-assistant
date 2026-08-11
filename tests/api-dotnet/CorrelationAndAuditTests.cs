@@ -84,6 +84,66 @@ public sealed class CorrelationAndAuditTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task Ordinary_user_cannot_verify_audit_integrity()
+    {
+        using var client = JwtTestToken.CreateAuthenticatedClient(
+            _factory,
+            "audit-user",
+            AppRoles.User,
+            "audit-integrity-tenant");
+
+        using var response = await client.GetAsync("/api/audit/integrity");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Tenant_admin_verifies_only_authenticated_tenant()
+    {
+        var tenant = $"audit-integrity-{Guid.NewGuid():N}";
+        using var admin = JwtTestToken.CreateAuthenticatedClient(
+            _factory,
+            "tenant-admin",
+            AppRoles.Admin,
+            tenant);
+
+        using var ownResponse = await admin.GetAsync("/api/audit/integrity");
+        ownResponse.EnsureSuccessStatusCode();
+        var result = await ownResponse.Content.ReadFromJsonAsync<AuditIntegrityResult>();
+
+        Assert.NotNull(result);
+        Assert.Equal(tenant, result.TenantId);
+        Assert.True(result.IsValid);
+
+        using var foreignResponse = await admin.GetAsync(
+            "/api/audit/integrity?tenantId=another-tenant");
+        Assert.Equal(HttpStatusCode.Forbidden, foreignResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Platform_admin_requires_explicit_tenant_for_integrity_verification()
+    {
+        var targetTenant = $"platform-target-{Guid.NewGuid():N}";
+        using var platformAdmin = JwtTestToken.CreateAuthenticatedClient(
+            _factory,
+            "platform-admin",
+            AppRoles.PlatformAdmin,
+            "platform");
+
+        using var missingTenant = await platformAdmin.GetAsync("/api/audit/integrity");
+        Assert.Equal(HttpStatusCode.BadRequest, missingTenant.StatusCode);
+
+        using var explicitTenant = await platformAdmin.GetAsync(
+            $"/api/audit/integrity?tenantId={targetTenant}");
+        explicitTenant.EnsureSuccessStatusCode();
+        var result = await explicitTenant.Content.ReadFromJsonAsync<AuditIntegrityResult>();
+
+        Assert.NotNull(result);
+        Assert.Equal(targetTenant, result.TenantId);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public async Task Tenant_admin_reads_only_its_tenant_and_platform_admin_reads_all()
     {
         var marker = Guid.NewGuid().ToString("N");
