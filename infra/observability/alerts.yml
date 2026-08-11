@@ -1,0 +1,88 @@
+groups:
+  - name: document-assistant-slo
+    interval: 15s
+    rules:
+      - record: document_assistant:api_request_rate5m
+        expr: sum(rate(http_server_request_duration_seconds_count[5m]))
+
+      - record: document_assistant:api_5xx_rate5m
+        expr: sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+
+      - record: document_assistant:api_5xx_ratio5m
+        expr: document_assistant:api_5xx_rate5m / clamp_min(document_assistant:api_request_rate5m, 0.000001)
+
+      - record: document_assistant:api_latency_p95_seconds5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m])))
+
+  - name: document-assistant-alerts
+    interval: 15s
+    rules:
+      - alert: AuditPersistenceFailure
+        expr: increase(document_assistant_audit_persistence_failures_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: document-assistant
+        annotations:
+          summary: Audit persistence failed
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#audit-persistence-failure
+
+      - alert: AuditIntegrityFailure
+        expr: increase(document_assistant_audit_integrity_failures_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: document-assistant
+        annotations:
+          summary: Tamper-evident audit verification failed
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#audit-integrity-failure
+
+      - alert: AuditArchiveFailure
+        expr: increase(document_assistant_audit_archive_failures_total[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: document-assistant
+        annotations:
+          summary: Audit retention archive run failed
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#audit-retention-failure
+
+      - alert: IngestionTerminalFailureSpike
+        expr: increase(document_assistant_ingestion_failed_total[15m]) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          service: document-assistant
+        annotations:
+          summary: Multiple ingestion jobs reached terminal failure
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#ingestion-terminal-failure-spike
+
+      - alert: ApiErrorBudgetBurn
+        expr: document_assistant:api_5xx_ratio5m > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          service: document-assistant
+        annotations:
+          summary: API 5xx ratio is burning the availability error budget
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#api-error-budget-burn
+
+      - alert: ApiLatencySloViolation
+        expr: document_assistant:api_latency_p95_seconds5m > 0.75
+        for: 15m
+        labels:
+          severity: warning
+          service: document-assistant
+        annotations:
+          summary: API p95 server duration exceeds the local SLO target
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#api-latency-slo-violation
+
+      - alert: TelemetryPipelineUnavailable
+        expr: up{job="otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: observability
+        annotations:
+          summary: Prometheus cannot scrape the OpenTelemetry Collector exporter
+          runbook: docs/runbooks/AUDIT_OPERATIONS.md#telemetry-pipeline-unavailable
