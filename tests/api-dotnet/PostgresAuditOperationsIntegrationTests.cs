@@ -217,7 +217,7 @@ public sealed class PostgresAuditOperationsIntegrationTests
         }
 
         await using var command = new NpgsqlCommand(
-            "SELECT * FROM verify_audit_chain('tenant-b');",
+            "SELECT * FROM verify_audit_chain_scoped('tenant-b');",
             connection,
             transaction);
         var exception = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteReaderAsync());
@@ -331,6 +331,7 @@ public sealed class PostgresAuditOperationsIntegrationTests
             DROP TABLE IF EXISTS audit_chain_heads CASCADE;
             DROP TABLE IF EXISTS audit_events CASCADE;
             DROP FUNCTION IF EXISTS archive_audit_events(TIMESTAMPTZ, INTEGER) CASCADE;
+            DROP FUNCTION IF EXISTS verify_audit_chain_scoped(TEXT) CASCADE;
             DROP FUNCTION IF EXISTS verify_audit_chain(TEXT) CASCADE;
             DROP FUNCTION IF EXISTS assign_audit_event_chain() CASCADE;
             DROP FUNCTION IF EXISTS audit_event_compute_hash(TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB) CASCADE;
@@ -366,6 +367,8 @@ public sealed class PostgresAuditOperationsIntegrationTests
             ALTER ROLE audit_test_app PASSWORD 'audit-test-app-password';
             ALTER ROLE audit_test_platform PASSWORD 'audit-test-platform-password';
             ALTER ROLE audit_test_privileged PASSWORD 'audit-test-privileged-password';
+            GRANT document_platform TO audit_test_platform;
+            GRANT document_privileged TO audit_test_privileged;
 
             CREATE TABLE audit_events
             (
@@ -413,23 +416,18 @@ public sealed class PostgresAuditOperationsIntegrationTests
             await command.ExecuteNonQueryAsync();
         }
 
-        var scriptPath = FindRepositoryFile("infra/postgres/init/zzzzzzzz-audit-operations.sql");
-        var script = await File.ReadAllTextAsync(scriptPath);
-        var executableSql = string.Join(
-            Environment.NewLine,
-            script.Split('\n').Where(line => !line.TrimStart().StartsWith('\\')));
-
-        await using var migration = new NpgsqlCommand(executableSql, connection)
-        {
-            CommandTimeout = 60
-        };
-        await migration.ExecuteNonQueryAsync();
+        await ExecuteMigrationAsync(
+            connection,
+            "infra/postgres/init/zzzzzzzz-audit-operations.sql");
+        await ExecuteMigrationAsync(
+            connection,
+            "infra/postgres/init/zzzzzzzzz-audit-verification-access.sql");
 
         const string grantSql = """
             GRANT SELECT, INSERT ON audit_events TO audit_test_app, audit_test_platform, audit_test_privileged;
             GRANT SELECT ON audit_event_archive TO audit_test_app, audit_test_platform, audit_test_privileged;
             GRANT USAGE, SELECT ON SEQUENCE audit_events_id_seq TO audit_test_app, audit_test_platform, audit_test_privileged;
-            GRANT EXECUTE ON FUNCTION verify_audit_chain(TEXT) TO audit_test_app, audit_test_platform, audit_test_privileged;
+            GRANT EXECUTE ON FUNCTION verify_audit_chain_scoped(TEXT) TO audit_test_app, audit_test_platform, audit_test_privileged;
             GRANT EXECUTE ON FUNCTION archive_audit_events(TIMESTAMPTZ, INTEGER) TO audit_test_privileged;
 
             DROP POLICY IF EXISTS audit_test_archive_tenant_select ON audit_event_archive;
@@ -447,6 +445,21 @@ public sealed class PostgresAuditOperationsIntegrationTests
             """;
         await using var grants = new NpgsqlCommand(grantSql, connection);
         await grants.ExecuteNonQueryAsync();
+    }
+
+    private static async Task ExecuteMigrationAsync(NpgsqlConnection connection, string relativePath)
+    {
+        var scriptPath = FindRepositoryFile(relativePath);
+        var script = await File.ReadAllTextAsync(scriptPath);
+        var executableSql = string.Join(
+            Environment.NewLine,
+            script.Split('\n').Where(line => !line.TrimStart().StartsWith('\\')));
+
+        await using var migration = new NpgsqlCommand(executableSql, connection)
+        {
+            CommandTimeout = 60
+        };
+        await migration.ExecuteNonQueryAsync();
     }
 
     private static string FindRepositoryFile(string relativePath)
