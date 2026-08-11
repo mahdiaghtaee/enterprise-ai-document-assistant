@@ -1,0 +1,193 @@
+name: Operational observability
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  operations:
+    name: Audit integrity retention dashboards and alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate versioned observability assets
+        run: python3 scripts/verify_observability_assets.py
+
+      - name: Validate base and observability Compose configuration
+        run: |
+          docker compose config > /dev/null
+          docker compose -f docker-compose.yml -f docker-compose.observability.yml config > /dev/null
+
+      - name: Start application and observability stack
+        run: docker compose -f docker-compose.yml -f docker-compose.observability.yml up --detach --build
+
+      - name: Wait for operational endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_url() {
+            local name="$1"
+            local url="$2"
+            shift 2
+
+            for attempt in $(seq 1 60); do
+              if curl --fail --silent --show-error "$@" "$url" > /dev/null; then
+                echo "$name is ready"
+                return 0
+              fi
+
+              echo "Waiting for $name ($attempt/60)"
+              sleep 2
+            done
+
+            echo "$name did not become ready"
+            return 1
+          }
+
+          wait_for_url "document API" "http://localhost:5000/health"
+          wait_for_url "OpenTelemetry Collector" "http://localhost:13133/"
+          wait_for_url "Prometheus" "http://localhost:9090/-/ready"
+          wait_for_url "Alertmanager" "http://localhost:9093/-/ready"
+          wait_for_url "Grafana" "http://localhost:3001/api/health"
+
+      - name: Verify tamper-evident audit schema and bounded archival
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          query_database() {
+            docker compose -f docker-compose.yml -f docker-compose.observability.yml exec -T postgres psql \
+              --username "${POSTGRES_USER:-documents}" \
+              --dbname "${POSTGRES_DB:-documents}" \
+              --no-psqlrc \
+              --tuples-only \
+              --no-align \
+              --set ON_ERROR_STOP=1 \
+              --command "$1"
+          }
+
+          test "$(query_database "SELECT count(*) FROM pg_extension WHERE extname = 'pgcrypto';")" = "1"
+          test "$(query_database "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='audit_event_archive';")" = "1"
+          test "$(query_database "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='audit_events' AND column_name IN ('chain_sequence','previous_hash','event_hash') AND is_nullable='NO';")" = "3"
+          test "$(query_database "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='audit_events' AND indexname='ux_audit_events_tenant_chain_sequence';")" = "1"
+          test "$(query_database "SELECT has_table_privilege('document_app','audit_events','DELETE');")" = "f"
+          test "$(query_database "SELECT has_table_privilege('document_platform','audit_events','UPDATE');")" = "f"
+          test "$(query_database "SELECT has_table_privilege('document_privileged','audit_event_archive','DELETE');")" = "f"
+          test "$(query_database "SELECT has_function_privilege('document_privileged','archive_audit_events(timestamp with time zone,integer)','EXECUTE');")" = "t"
+          test "$(query_database "SELECT has_function_privilege('document_app','archive_audit_events(timestamp with time zone,integer)','EXECUTE');")" = "f"
+
+          query_database "INSERT INTO audit_events (occurred_at,tenant_id,actor_user_id,actor_role,event_type,action,resource_type,resource_id,outcome,correlation_id,details) VALUES (CURRENT_TIMESTAMP - INTERVAL '120 days','ops-ci-tenant','ops-ci','System','ops.test','test','ci','old','success','ops-ci-old','{}'::jsonb);" > /dev/null
+          query_database "INSERT INTO audit_events (occurred_at,tenant_id,actor_user_id,actor_role,event_type,action,resource_type,resource_id,outcome,correlation_id,details) VALUES (CURRENT_TIMESTAMP - INTERVAL '1 day','ops-ci-tenant','ops-ci','System','ops.test','test','ci','recent','success','ops-ci-recent','{}'::jsonb);" > /dev/null
+          test "$(query_database "SELECT is_valid || ':' || checked_count || ':' || head_sequence FROM verify_audit_chain('ops-ci-tenant');")" = "true:2:2"
+          test "$(query_database "SELECT archive_audit_events(CURRENT_TIMESTAMP - INTERVAL '90 days', 100);")" = "1"
+          test "$(query_database "SELECT count(*) FROM audit_event_archive WHERE tenant_id='ops-ci-tenant';")" = "1"
+          test "$(query_database "SELECT is_valid || ':' || checked_count || ':' || head_sequence FROM verify_audit_chain('ops-ci-tenant');")" = "true:2:2"
+
+      - name: Emit API telemetry and verify Prometheus ingestion
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 20); do
+            curl --fail --silent http://localhost:5000/health > /dev/null
+          done
+
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://localhost:9090/api/v1/label/__name__/values > /tmp/metric-names.json
+            if python3 - <<'PY'
+          import json
+          with open('/tmp/metric-names.json', encoding='utf-8') as source:
+              payload = json.load(source)
+          names = payload.get('data', [])
+          assert payload.get('status') == 'success', payload
+          raise SystemExit(0 if any(name.startswith('http_server_request_duration') for name in names) else 1)
+          PY
+            then
+              echo "ASP.NET Core server metrics reached Prometheus"
+              break
+            fi
+
+            if [ "$attempt" = "30" ]; then
+              echo "Expected ASP.NET Core server metric did not reach Prometheus"
+              cat /tmp/metric-names.json
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Verify recording and alert rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://localhost:9090/api/v1/rules > /tmp/prometheus-rules.json
+          python3 - <<'PY'
+          import json
+
+          expected_alerts = {
+              'AuditPersistenceFailure',
+              'AuditIntegrityFailure',
+              'AuditArchiveFailure',
+              'IngestionTerminalFailureSpike',
+              'ApiErrorBudgetBurn',
+              'ApiLatencySloViolation',
+              'TelemetryPipelineUnavailable',
+          }
+          expected_records = {
+              'document_assistant:api_request_rate5m',
+              'document_assistant:api_5xx_rate5m',
+              'document_assistant:api_5xx_ratio5m',
+              'document_assistant:api_latency_p95_seconds5m',
+          }
+
+          with open('/tmp/prometheus-rules.json', encoding='utf-8') as source:
+              payload = json.load(source)
+          assert payload['status'] == 'success', payload
+          rules = [rule for group in payload['data']['groups'] for rule in group['rules']]
+          alerts = {rule['name'] for rule in rules if rule['type'] == 'alerting'}
+          records = {rule['name'] for rule in rules if rule['type'] == 'recording'}
+          assert expected_alerts <= alerts, (expected_alerts - alerts, alerts)
+          assert expected_records <= records, (expected_records - records, records)
+          PY
+
+      - name: Verify Grafana provisioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent \
+            --user "admin:${GRAFANA_ADMIN_PASSWORD:-admin-local}" \
+            http://localhost:3001/api/datasources/uid/prometheus > /tmp/grafana-datasource.json
+          curl --fail --silent \
+            --user "admin:${GRAFANA_ADMIN_PASSWORD:-admin-local}" \
+            http://localhost:3001/api/dashboards/uid/enterprise-document-assistant-operations > /tmp/grafana-dashboard.json
+
+          python3 - <<'PY'
+          import json
+          with open('/tmp/grafana-datasource.json', encoding='utf-8') as source:
+              datasource = json.load(source)
+          with open('/tmp/grafana-dashboard.json', encoding='utf-8') as source:
+              dashboard = json.load(source)
+          assert datasource['uid'] == 'prometheus', datasource
+          assert datasource['type'] == 'prometheus', datasource
+          assert dashboard['dashboard']['uid'] == 'enterprise-document-assistant-operations', dashboard
+          assert dashboard['meta']['isProvisioned'] is True, dashboard['meta']
+          PY
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.observability.yml logs --no-color
+
+      - name: Stop application and observability stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.observability.yml down --volumes
