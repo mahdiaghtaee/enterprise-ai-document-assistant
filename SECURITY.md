@@ -4,7 +4,7 @@
 
 Enterprise AI Document Assistant is an open-source reference project and development portfolio. It is not currently intended to store confidential, regulated, or production business documents.
 
-The repository demonstrates JWT authentication, durable tenant and membership authorization, database-enforced tenant isolation, one-time invitation handling, user ownership, durable ingestion, safe TXT/PDF/DOCX upload boundaries, tenant-scoped semantic retrieval, append-only audit events, correlation identifiers, structured logging, OpenTelemetry-compatible diagnostics, and optional grounded-answer providers. Production controls such as external identity-provider synchronization, domain verification, encrypted document storage, centralized secret management, managed key rotation, token revocation, tenant quotas, retention/deletion automation, audit archival, alerting, production malware-scanner operations, and external immutable audit storage remain on the roadmap.
+The repository demonstrates JWT authentication, durable tenant and membership authorization, database-enforced tenant isolation, one-time invitation handling, user ownership, durable ingestion, safe TXT/PDF/DOCX upload boundaries, tenant-scoped semantic retrieval, append-only and tamper-evident audit records, bounded audit archival, correlation identifiers, structured logging, OpenTelemetry-compatible diagnostics, an opt-in local operational-observability stack, and optional grounded-answer providers. Production controls such as external identity-provider synchronization, domain verification, encrypted document storage, centralized secret management, managed key rotation, token revocation, tenant quotas, jurisdiction-specific retention/deletion automation, external immutable audit anchoring, production paging, and operated production malware-scanner infrastructure remain deployment responsibilities or roadmap work.
 
 ## Supported Versions
 
@@ -35,9 +35,9 @@ The ASP.NET Core API validates signed JWT bearer tokens and requires stable `sub
 
 A JWT Admin claim does not elevate a durable User membership. The request is rejected until a correctly scoped token is issued. Removing a membership, downgrading an Admin, or disabling a tenant takes effect on the next request without waiting for JWT expiration.
 
-Owner and tenant identity are assigned from validated claims and cannot be supplied by document request bodies. Document list, processing status, semantic search, Ask, returned source text, tenant administration, and audit reads share the same authenticated access context. Foreign document identifiers return `404` outside the caller's authorized scope.
+Owner and tenant identity are assigned from validated claims and cannot be supplied by document request bodies. Document list, processing status, semantic search, Ask, returned source text, tenant administration, audit reads, and audit-integrity verification share the same authenticated access context. Foreign document identifiers return `404` outside the caller's authorized scope.
 
-PostgreSQL stores `tenant_id` on tenants, memberships, invitations, documents, semantic chunks, ingestion jobs, and audit events. Forced Row-Level Security protects runtime roles, and composite foreign keys prevent child records from using a tenant different from the referenced document. Runtime transactions set `app.tenant_id` locally; missing context fails closed.
+PostgreSQL stores `tenant_id` on tenants, memberships, invitations, documents, semantic chunks, ingestion jobs, active audit events, and archived audit events. Forced Row-Level Security protects runtime roles, and composite foreign keys prevent child records from using a tenant different from the referenced document. Runtime transactions set `app.tenant_id` locally; missing context fails closed.
 
 The final active tenant Admin cannot be removed or downgraded. The PostgreSQL path locks the relevant membership rows in the same transaction before enforcing this invariant.
 
@@ -99,25 +99,39 @@ Docker Compose separates three non-superuser, non-`BYPASSRLS` database roles:
 
 - `document_app`: tenant-scoped public API access;
 - `document_platform`: platform lifecycle mutations, cross-tenant reads, and audit insertion without ingestion/document mutation privileges;
-- `document_privileged`: background-ingestion writes, retries, and recovery.
+- `document_privileged`: background-ingestion writes, retries, recovery, and bounded audit archival.
 
 The public `document-api` container receives `document_app` and `document_platform`; it does not receive `document_privileged`. The independent `document-worker` receives `document_privileged`, has no published host port, and shares only the named document-storage volume required for queued processing.
 
 `ApplicationMode=Api`, `Worker`, or `Combined` controls process behavior. Compose uses separate API and Worker processes. Combined mode exists for isolated tests and compatibility, not as the recommended production trust boundary.
 
-## Audit Boundary
+## Audit Integrity and Retention Boundary
 
-The audit table grants application roles only the required `SELECT` and `INSERT` privileges. Database triggers record document and ingestion state changes in the same transaction. Application audit events add action, result count, duration, correlation ID, and trace ID without storing document text, source chunks, search queries, questions, generated answers, provider response bodies, invitation tokens, bearer tokens, file content, malware-signature names, or raw scanner responses.
+Application roles retain append-only semantics on audit data. They receive the minimum read/insert access needed for their role and do not receive direct `UPDATE`, `DELETE`, or `TRUNCATE` privileges on `audit_events` or `audit_event_archive`.
 
-Lifecycle audit events record tenant provisioning/status changes, membership role/removal operations, and invitation creation/acceptance/revocation. They store bounded identifiers and outcomes but no invitation secret.
+Each new active audit row receives database-generated integrity fields:
 
-Successful upload audit records may include bounded content type, size, and scanner provider/status values. They do not include the original document bytes, extracted text, scanner response, or scanner signature name.
+- a tenant-local monotonically increasing `chain_sequence`;
+- the previous event hash;
+- a SHA-256 `event_hash` over the previous hash plus a canonical representation of the bounded audit fields.
+
+Same-tenant inserts are transactionally serialized before assigning the next sequence/head. Existing rows are backfilled in deterministic `(occurred_at, id)` order when the migration is applied. Archived rows retain the original ID, sequence, previous hash, and event hash so verification spans both storage tiers.
+
+The chain is **tamper-evident, not immutable**. It detects ordinary payload mutation, missing/reordered rows, broken hash links, and head inconsistency when the stored integrity state is not also forged. A PostgreSQL superuser or equivalent operator who can rewrite audit rows, archive rows, hashes, and `audit_chain_heads` together remains inside the trust boundary and can defeat this control. Environments requiring stronger non-repudiation should periodically anchor chain heads in independently controlled immutable storage or a signing service.
+
+`verify_audit_chain_scoped` limits tenant-runtime callers to their transaction-local tenant. Platform/privileged identities may verify an explicit tenant. The Admin API returns only validity/count/sequence status; it does not return hashes or event payloads.
+
+Audit retention is disabled by default. When enabled, only the independent privileged Worker can call the bounded `archive_audit_events(cutoff,batch_size)` `SECURITY DEFINER` function. The function moves eligible rows transactionally in bounded batches. The Worker does not receive direct DELETE privileges on active or archived audit tables.
+
+Archival is not legal deletion. Production deployments must separately define archive purge, legal hold, subject-access, export, deletion, residency, and immutable-backup obligations.
+
+Database triggers continue to record document and ingestion state changes in the same transaction. Application audit events add bounded action/result metadata without storing document text, source chunks, search queries, questions, generated answers, provider response bodies, invitation tokens, bearer tokens, file content, malware-signature names, or raw scanner responses.
 
 ## Correlation and Telemetry Safety
 
 `X-Correlation-ID` is a diagnostic identifier, not an authorization credential. Supplied values are length- and character-validated before being included in response headers, logs, traces, or audit events.
 
-Telemetry tags and metrics avoid user identifiers, file names, query text, question text, invitation tokens, generated answers, and other unbounded high-cardinality content. Logs must not include:
+Telemetry tags and metrics avoid tenant identifiers, user identifiers, document identifiers, file names, correlation IDs, trace IDs, query text, question text, invitation tokens, generated answers, scanner signatures, and other unbounded high-cardinality/content-derived values. Logs must not include:
 
 - bearer or invitation tokens;
 - document or source-chunk content;
@@ -127,21 +141,24 @@ Telemetry tags and metrics avoid user identifiers, file names, query text, quest
 - database passwords or full connection strings;
 - uploaded file bytes.
 
-An OTLP exporter endpoint is operational configuration and must be restricted to trusted infrastructure. Exporter failure must not weaken authorization or tenant isolation.
+An OTLP exporter endpoint is operational configuration and must be restricted to trusted infrastructure. Exporter failure must not weaken authorization, tenant isolation, document processing, or durable audit persistence.
+
+The optional local Collector/Prometheus/Grafana/Alertmanager stack is an engineering reference. The committed Alertmanager receiver is deliberately local-null and sends no external notification. Production telemetry endpoints, Grafana credentials, paging receivers, storage, retention, and HA topology require independent security review and secret management.
 
 ## Development Security Notes
 
 The default Docker Compose configuration is for local development only.
 
 - The repository JWT signing key and token helper are development-only.
-- Database passwords in `.env.example` are local credentials.
+- Database and Grafana passwords in `.env.example` are local credentials.
 - The demo can provision a local tenant and membership using development PlatformAdmin/Admin tokens.
 - PostgreSQL, Redis, and the AI service expose local ports for debugging.
 - Existing data is mapped to explicit legacy tenants/memberships during migration and must be reviewed.
 - Uploaded content must be treated as untrusted input even after format inspection.
 - Local malware scanning is deliberately disabled unless a ClamAV endpoint is configured; the stack does not bundle a scanner daemon.
-- Invitation delivery, encrypted storage, audit retention, and production telemetry storage are not implemented.
-- Use a secret manager, TLS, restricted networking, managed identity, independently deployable service identities, and an operated malware-scanning boundary before production deployment.
+- Audit retention is deliberately disabled unless the deployment explicitly sets reviewed retention settings.
+- The observability backend starts only when `docker-compose.observability.yml` is explicitly included.
+- Use a secret manager, TLS, restricted networking, managed identity, independently deployable service identities, production telemetry controls, and an operated malware-scanning boundary before production deployment.
 
 ## Tenant Deployment Requirements
 
@@ -152,12 +169,12 @@ A deployment derived from this project must:
 - restrict who can issue or obtain `PlatformAdmin` tokens;
 - protect the separate public API, platform-management, and worker database identities;
 - use unique managed database passwords and rotate them;
-- verify Row-Level Security, policies, grants, role flags, invitation constraints, and final-Admin protection after every migration;
-- test cross-tenant list, status, search, Ask, audit, membership, invitation, insert, update, and deletion paths;
-- define tenant deactivation, retention, export, archival, and deletion behavior;
+- verify Row-Level Security, policies, grants, role flags, invitation constraints, final-Admin protection, audit-chain triggers, archive policies, and archive-function grants after every migration;
+- test cross-tenant list, status, search, Ask, audit, integrity verification, membership, invitation, insert, update, and deletion paths;
+- define tenant deactivation, retention, export, archival, legal-hold, and deletion behavior;
 - prevent tenant identifiers and membership roles from being changed through document payloads;
 - deliver invitation tokens only through trusted channels;
-- export or protect audit records with controls appropriate to the applicable threat model.
+- export or protect audit records and chain-head state with controls appropriate to the applicable threat model.
 
 ## JWT Deployment Requirements
 
@@ -176,15 +193,18 @@ Durable membership revocation limits application access immediately, but it does
 
 ## Audit Deployment Requirements
 
-The implemented audit ledger is append-only to application roles, but a production deployment must also define:
+A production deployment must define and verify:
 
-- retention and archival periods;
-- access-review and break-glass procedures;
-- backup and restore verification;
-- tamper-evident hashing or immutable external storage where required;
-- alerting for audit persistence failures, suspicious lifecycle mutations, and repeated invitation failures;
-- legal hold, subject-access, export, and deletion obligations;
-- protection of platform and worker database roles.
+- reviewed active-retention and archive periods rather than adopting the local 90-day example without analysis;
+- access-review and break-glass procedures for database and PlatformAdmin privileges;
+- backup and restore verification for active audits, archived audits, and chain heads;
+- external chain-head anchoring or immutable signed storage where non-repudiation is required;
+- production alert delivery and ownership for audit persistence/integrity/retention failures;
+- legal hold, subject-access, export, archive purge, and deletion obligations;
+- protection of platform and worker database roles;
+- repeated restore exercises before claiming RPO/RTO values.
+
+Never repair a failed chain by recalculating hashes in place before evidence is preserved and the incident process authorizes remediation.
 
 ## Dependency and Container Hygiene
 
@@ -193,7 +213,7 @@ For any deployment derived from this project:
 - pin and review dependency updates;
 - scan application and container dependencies;
 - use minimal, non-root runtime images where possible;
-- rotate credentials, invitation-delivery secrets, and provider keys;
+- rotate credentials, invitation-delivery secrets, Grafana/notification secrets, and provider keys;
 - keep PostgreSQL and Redis off the public internet;
 - apply database backups, retention rules, and deletion policies appropriate to the data;
 - retain the separated worker trust boundary rather than copying its credential into the public API;
