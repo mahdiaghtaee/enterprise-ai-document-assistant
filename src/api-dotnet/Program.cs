@@ -126,7 +126,8 @@ app.UseAuthorization();
 
 app.MapGet("/health", (
     ICorrelationContextAccessor correlation,
-    IOptions<FileThreatScanningOptions> scanningOptions) => Results.Ok(new
+    IOptions<FileThreatScanningOptions> scanningOptions,
+    IOptions<AuditRetentionOptions> retentionOptions) => Results.Ok(new
 {
     service = hostingMode.RunsApi ? "document-api" : "document-worker",
     mode = hostingMode.Name,
@@ -134,7 +135,8 @@ app.MapGet("/health", (
     checkedAt = DateTimeOffset.UtcNow,
     correlationId = correlation.CorrelationId,
     traceId = Activity.Current?.TraceId.ToString(),
-    fileThreatScanningProvider = scanningOptions.Value.Provider
+    fileThreatScanningProvider = scanningOptions.Value.Provider,
+    auditRetentionEnabled = hostingMode.RunsWorker && retentionOptions.Value.Enabled
 }));
 
 app.MapGet("/health/live", (ICorrelationContextAccessor correlation) => Results.Ok(new
@@ -725,6 +727,7 @@ var auditApi = app.MapGroup("/api/audit")
 
 auditApi.MapGet("/events", async (
     int? limit,
+    bool? includeArchived,
     ClaimsPrincipal principal,
     IAuditEventRepository auditRepository,
     ICorrelationContextAccessor correlation,
@@ -734,7 +737,8 @@ auditApi.MapGet("/events", async (
     var query = new AuditEventQuery(
         TenantId: access.CanAccessAllTenants ? null : access.TenantId,
         BypassTenantIsolation: access.UsePrivilegedDatabase,
-        Limit: limit ?? 100);
+        Limit: limit ?? 100,
+        IncludeArchived: includeArchived ?? true);
     var events = await auditRepository.GetRecentAsync(query, cancellationToken);
 
     await auditRepository.AppendAsync(
@@ -749,12 +753,75 @@ auditApi.MapGet("/events", async (
             details: new Dictionary<string, object?>
             {
                 ["requestedLimit"] = query.Limit,
+                ["includeArchived"] = query.IncludeArchived,
                 ["resultCount"] = events.Count
             }),
         access.UsePrivilegedDatabase,
         cancellationToken);
 
     return Results.Ok(events);
+});
+
+auditApi.MapGet("/integrity", async (
+    string? tenantId,
+    ClaimsPrincipal principal,
+    IAuditEventRepository auditRepository,
+    ICorrelationContextAccessor correlation,
+    CancellationToken cancellationToken) =>
+{
+    var access = DocumentAccessContext.FromPrincipal(principal);
+
+    if (access.CanAccessAllTenants && string.IsNullOrWhiteSpace(tenantId))
+    {
+        return Results.BadRequest(new
+        {
+            message = "PlatformAdmin must supply a tenantId for audit integrity verification."
+        });
+    }
+
+    if (!access.CanAccessAllTenants
+        && !string.IsNullOrWhiteSpace(tenantId)
+        && !string.Equals(tenantId.Trim(), access.TenantId, StringComparison.Ordinal))
+    {
+        return Results.Forbid();
+    }
+
+    string targetTenantId;
+    try
+    {
+        targetTenantId = TenantIsolation.Normalize(
+            access.CanAccessAllTenants ? tenantId! : access.TenantId);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { message = exception.Message });
+    }
+
+    var result = await auditRepository.VerifyIntegrityAsync(
+        new AuditIntegrityQuery(targetTenantId, access.UsePrivilegedDatabase),
+        cancellationToken);
+
+    await auditRepository.AppendAsync(
+        AuditEventWrite.Create(
+            access,
+            RequireCorrelationId(correlation),
+            AuditEventTypes.AuditIntegrityVerified,
+            "verify_integrity",
+            "audit_chain",
+            resourceId: null,
+            outcome: result.IsValid ? "success" : "failure",
+            details: new Dictionary<string, object?>
+            {
+                ["targetTenantId"] = targetTenantId,
+                ["isValid"] = result.IsValid,
+                ["checkedCount"] = result.CheckedCount,
+                ["firstBrokenSequence"] = result.FirstBrokenSequence,
+                ["headSequence"] = result.HeadSequence
+            }),
+        access.UsePrivilegedDatabase,
+        cancellationToken);
+
+    return Results.Ok(result);
 });
 
 app.Run();
