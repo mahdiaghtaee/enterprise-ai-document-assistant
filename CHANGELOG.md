@@ -8,6 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Per-tenant tamper-evident audit chains with database-generated sequence, previous-hash, and SHA-256 event-hash fields.
+- Transactionally serialized same-tenant audit insertion and durable chain-head state to prevent concurrent chain forks.
+- Deterministic audit-chain backfill for existing rows ordered by occurrence time and event ID.
+- Tenant-RLS protected `audit_event_archive` storage that preserves original event IDs and audit-chain fields.
+- Bounded privileged `archive_audit_events` database function without granting direct application DELETE privileges.
+- Configurable Worker-hosted audit retention with a safe disabled local default, retention age, batch limits, cadence, and failure metrics.
+- `GET /api/audit/integrity` for tenant-scoped Admin verification and explicit-tenant PlatformAdmin verification without exposing audit payloads or hashes.
+- Authorized audit-history queries across active and archived tiers with an active-only option.
+- Audit integrity, archive-run, archived-event, archive-failure, and archive-duration metrics using bounded dimensions.
+- An opt-in OpenTelemetry Collector, Prometheus, Grafana, and Alertmanager Compose override using pinned images.
+- Version-controlled Prometheus recording rules and alerts for API availability/latency, audit persistence/integrity/retention, ingestion failures, and telemetry-pipeline health.
+- Provisioned Grafana Prometheus datasource and `Enterprise Document Assistant - Operations` dashboard.
+- Version-controlled local/pre-production SLO guardrails, incident runbooks, and backup/restore verification procedures.
+- A dedicated Operational Observability workflow covering audit schema/privileges, hash/archive continuity, OTLP-to-Prometheus delivery, alert-rule loading, and Grafana provisioning.
+- PostgreSQL tests for concurrent audit insertion, tamper detection, archive continuity, cross-tenant verifier denial, and direct active/archive mutation denial.
+- Unit tests for retention batching, maximum-run bounds, cancellation, option validation, and controlled maintenance failure handling.
 - Safe TXT, PDF, and DOCX upload boundaries that require supported file extensions and matching declared content types.
 - Actual `%PDF-` signature inspection plus PdfPig parsing and page-count validation before durable enqueue.
 - DOCX ZIP/OOXML package inspection for required Word parts, content-type declarations, traversal-safe paths, bounded archive entries, and bounded expanded bytes.
@@ -53,51 +69,65 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- Upload processing now validates metadata, actual document structure, and the configured malware verdict before storing files or creating durable document/job records.
+- Audit insertion now assigns integrity-chain fields inside PostgreSQL rather than trusting application-supplied sequence/hash data.
+- Audit history reads include authorized archived rows by default; callers may explicitly request active rows only.
+- Audit maintenance runs only in Worker responsibilities with `PostgresPrivileged`, and retention remains disabled unless explicitly configured.
+- `/health` reports whether audit retention is enabled for the running Worker without exposing cutoff or database configuration.
+- The local observability backend is opt-in through `docker-compose.observability.yml`; the normal default Compose stack remains collector-free.
+- Prometheus SLO recording rules use the Collector-exported ASP.NET Core millisecond histogram and normalize p95 to seconds.
+- The committed Alertmanager receiver is deliberately local-only and sends no external notifications.
+- Upload processing validates metadata, actual document structure, and the configured malware verdict before storing files or creating durable document/job records.
 - The Worker re-applies format-specific page, archive, XML, extracted-character, and cancellation boundaries before semantic indexing.
 - `/health` reports the selected file-threat-scanning provider so the service-free `Disabled` local default is explicit.
 - Successful upload audit metadata may record bounded scanner provider/status values but excludes document content, extracted text, raw scanner responses, and threat-signature names.
 - JWT claims authenticate the requested subject and tenant, while durable tenant/membership state is authoritative for non-platform authorization.
 - Membership removal, Admin downgrade, and tenant deactivation affect the next protected request without waiting for JWT expiration.
-- The public API no longer receives `ConnectionStrings:PostgresPrivileged`; only the independent Worker receives the full ingestion credential.
+- The public API does not receive `ConnectionStrings:PostgresPrivileged`; only the independent Worker receives the full ingestion credential.
 - PlatformAdmin cross-tenant reads and lifecycle mutations use the narrower `document_platform` database role.
 - Docker Compose runs separate `document-api` and `document-worker` services sharing a named document-storage volume.
 - Processing-status reads use tenant-RLS or platform-read paths rather than the worker repository credential.
 - The local demo provisions a tenant and accepts a one-time invitation before document operations.
 - `Admin` remains tenant scoped; only `PlatformAdmin` uses the explicit cross-tenant path.
-- Search, Ask, lifecycle, and upload audit metadata stores bounded operational values while excluding query, question, source, answer, invitation-secret, scanner-response, response-body, and credential content.
+- Search, Ask, lifecycle, upload, and audit-operation telemetry stores bounded operational values while excluding query, question, source, answer, invitation-secret, scanner-response, response-body, credential, tenant-ID, user-ID, and document-ID metric labels.
 - Ask keeps its original response fields while adding answer status, provider, model, grounding, and reason metadata.
-- Documentation now treats safe document-format expansion, managed tenant lifecycle, split-worker trust boundaries, tenant isolation, audit/observability, retrieval evaluation, and grounded-answer providers as delivered foundations.
+- Documentation now treats audit operations, safe document-format expansion, managed tenant lifecycle, split-worker trust boundaries, tenant isolation, retrieval evaluation, and grounded-answer providers as delivered foundations.
 
 ### Migration notes
 
+- Fresh databases apply `infra/postgres/init/zzzzzzzz-audit-operations.sql` and `infra/postgres/init/zzzzzzzzz-audit-verification-access.sql` after the existing audit/lifecycle migrations.
+- The audit-operations migration enables `pgcrypto`, backfills existing audit chains, adds archive/head tables, and revokes direct mutation privileges. Existing databases must be backed up and the migration reviewed before manual application.
+- Backups must include `audit_events`, `audit_event_archive`, and `audit_chain_heads`; losing or restoring these inconsistently is an audit-integrity incident.
+- `AuditRetention:Enabled` remains `false` after upgrade unless explicitly enabled. Retention values must be reviewed against legal/business requirements rather than adopting the local 90-day example automatically.
+- The optional observability stack is started with `docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build`; Grafana/Prometheus/Alertmanager local defaults are not production credentials or HA configuration.
 - Safe TXT/PDF/DOCX ingestion introduces no database schema migration.
 - Existing deployments should review and explicitly configure `DocumentProcessing:*` safety limits before enabling PDF/DOCX uploads.
 - `FileThreatScanning:Provider` remains `Disabled` unless a trusted malware scanner is operated. Selecting `ClamAv` requires a reachable clamd endpoint and causes scanner timeout/unavailability to reject uploads.
-- Fresh databases apply `infra/postgres/init/zzzz-document-ownership.sql`, `infra/postgres/init/zzzzz-tenant-isolation.sql`, `infra/postgres/init/zzzzzz-audit-observability.sql`, and `infra/postgres/init/zzzzzzz-tenant-lifecycle.sql` automatically.
+- Fresh databases also apply the existing ownership, tenant-isolation, audit-observability, and tenant-lifecycle scripts automatically.
 - Existing PostgreSQL volumes require reviewed manual application after verified database and stored-file backups because entrypoint scripts do not rerun.
 - Existing tenant/owner data is mapped to explicit lifecycle records; every generated mapping and active Admin assignment must be reviewed before serving traffic.
 - Deployments must provision and rotate distinct `document_app`, `document_platform`, and `document_privileged` credentials.
 - The API and Worker should be deployed as separate identities; the privileged worker connection must not be copied into the public API environment.
-- Application roles require `SELECT` and `INSERT`, but not `UPDATE` or `DELETE`, on `audit_events`.
 - Existing deployments remain on deterministic answer generation unless `ANSWER_GENERATION_PROVIDER=OpenAiCompatible` is selected explicitly.
 - External-provider deployments must supply endpoint, API key, and model through trusted configuration and review provider data-handling terms before activation.
 
 ### Known limitations
 
+- The audit hash chain is tamper-evident, not externally immutable; a database superuser able to rewrite event/archive rows, hashes, and chain heads remains inside the trust boundary.
+- Archive movement is active-tier retention, not legal deletion. Jurisdiction-specific purge, legal hold, export, subject-access, and immutable archival remain deployment work.
+- The opt-in Collector/Prometheus/Grafana/Alertmanager stack is a local/pre-production reference, not a production HA telemetry backend.
+- Alertmanager has no external notification receiver, and the local SLO thresholds are not production availability commitments.
+- Production multi-window error-budget burn rules, measured cardinality/sampling budgets, and demonstrated RPO/RTO values are not yet established.
 - OCR execution is not bundled; scanned/image-only PDFs stop with `ocr-required`.
 - PDF reading order remains layout-dependent and rich layout/table reconstruction is not implemented.
 - The reference stack does not bundle or operate ClamAV; malware scanning is explicitly disabled by default and production signature updates, isolation, availability monitoring, and network policy are deployment responsibilities.
 - Password-protected document workflows, legacy `.doc`, content-disarm/reconstruction, and sandboxed rendering are not implemented.
 - Trusted invitation email/SMS delivery, domain verification, and recipient identity proofing are not implemented.
 - External IdP/SCIM synchronization, managed signing-key rotation, identity-provider session revocation, and device controls remain absent.
-- Per-tenant quotas, retention, export, deletion, legal hold, and organization recovery workflows are not implemented.
-- A production telemetry backend, dashboards, alerts, SLOs, audit retention, and tamper-evident archival are not bundled.
-- Encrypted document storage and centralized secret management remain absent.
+- Per-tenant quotas, organization data retention/export/deletion/legal-hold workflows, encrypted document storage, and centralized secret management remain absent.
 - The repository signing key, PlatformAdmin tokens, and token helper are for local development only.
 - The retrieval and answer datasets are small and synthetic; they detect controlled regressions but do not establish production factual accuracy.
 - The optional provider path verifies protocol and grounding controls without a production provider account or factual-accuracy claim.
-- The project remains unsuitable for confidential or regulated documents without additional identity, invitation-delivery, encryption, retention, secret-management, malware-operations, and operational controls.
+- The project remains unsuitable for confidential or regulated documents without additional identity, invitation-delivery, encryption, legal-retention, secret-management, malware-operations, immutable-audit, and production-operations controls.
 
 ## 0.3.0 - 2026-07-27
 

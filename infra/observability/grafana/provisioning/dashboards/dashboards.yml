@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: Enterprise Document Assistant
+    orgId: 1
+    folder: Enterprise Document Assistant
+    folderUid: enterprise-document-assistant
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

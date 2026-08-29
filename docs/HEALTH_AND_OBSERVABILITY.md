@@ -1,75 +1,51 @@
 # Health, Audit, and Observability
 
-This document describes the implemented operational-diagnostics foundation for the Enterprise AI Document Assistant.
+This document describes the implemented operational-diagnostics and audit-operations foundation for the Enterprise AI Document Assistant.
 
 ## Operational goals
 
-The system should answer four questions without inspecting private document content:
+The system should answer these questions without inspecting private document content:
 
-1. Is each process running?
+1. Is each process running and ready?
 2. Are required dependencies reachable?
-3. Which request, trace, tenant, document, ingestion job, or provider operation failed?
-4. Which authenticated actor performed a security-relevant document operation?
+3. Which bounded operation failed and how is it correlated?
+4. Which authenticated actor performed a security-relevant operation?
+5. Is the tenant audit history structurally intact across active and archived rows?
+6. Are reliability and audit controls inside their reviewed local SLO thresholds?
 
-The implementation separates telemetry from the durable audit ledger. Telemetry is optimized for diagnosis and aggregation; audit events are append-only business/security records.
+Telemetry and the durable audit ledger remain separate. Telemetry is optimized for aggregation and diagnosis; audit events are tenant-aware security/business records.
 
 ## Correlation and trace context
 
-Every ASP.NET Core and FastAPI response includes:
+Every ASP.NET Core and FastAPI response includes a validated `X-Correlation-ID`. Missing or invalid values are replaced with a generated identifier. Standard W3C `traceparent` propagation is handled by OpenTelemetry instrumentation.
 
-```text
-X-Correlation-ID: <validated identifier>
-```
-
-A client-supplied value is accepted only when it:
-
-- is between 1 and 128 characters;
-- contains only letters, digits, `.`, `_`, `:`, or `-`.
-
-Missing or invalid values are replaced with a generated 32-character identifier. The validated identifier is propagated through response headers, audit events, OpenTelemetry activity tags, and outgoing service requests, including optional answer-provider calls. Standard W3C `traceparent` propagation is handled by OpenTelemetry HTTP instrumentation.
-
-The ASP.NET Core log scope does not write externally supplied correlation text directly. It stores a deterministic 128-bit prefix of a SHA-256 digest as `CorrelationLogId`; the original validated identifier remains available in the response, audit ledger, and trace context. This prevents user-controlled log entries while preserving deterministic diagnostic linkage.
-
-Correlation identifiers are diagnostic labels, not authentication credentials, and must not be trusted for authorization.
+The ASP.NET Core log scope does not write externally supplied correlation text directly. It stores a deterministic SHA-256-derived `CorrelationLogId`; the original validated identifier remains in the response, audit record, and trace context. Correlation identifiers are diagnostic labels, not authorization credentials.
 
 ## Health endpoints
 
-### ASP.NET Core API
-
 | Endpoint | Purpose | Dependency checks |
 |---|---|---|
-| `GET /health` | Backward-compatible process health | None |
-| `GET /health/live` | Liveness/probe that confirms the process can serve HTTP | None |
-| `GET /health/ready` | Readiness for traffic | PostgreSQL and FastAPI health |
+| `GET /health` | Process status and safe feature-state summary | None |
+| `GET /health/live` | Liveness | None |
+| `GET /health/ready` | Readiness | PostgreSQL and FastAPI health |
 
-The readiness endpoint returns `503 Service Unavailable` when a required dependency is unhealthy. Its response includes dependency status and duration, correlation ID, and trace ID, but not credentials or connection strings.
+`GET /health` reports the process mode, configured file-threat-scanning provider, and whether audit retention is active in the Worker. It does not disclose scanner endpoints, connection strings, retention cutoffs, or credentials.
 
-The optional external answer provider is request-time functionality and is not called by readiness probes. Provider timeout and availability are reported through controlled Ask responses, traces, metrics, and audit events rather than causing readiness probes to send billable or data-bearing requests.
-
-### FastAPI service
-
-`GET /health` returns service status, UTC check time, correlation ID, and the active trace ID when one exists.
+The external answer provider is request-time functionality and is not called by readiness probes.
 
 ## OpenTelemetry signals
 
-Both services can run without a telemetry collector. When `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, they export OTLP/HTTP traces and metrics. The ASP.NET Core service also exports structured OpenTelemetry logs.
+The default repository remains collector-free. When `OpenTelemetry:OtlpEndpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, the services export OTLP signals.
 
-Service names:
+Service names include:
 
 ```text
 enterprise-document-assistant-api
+enterprise-document-assistant-worker
 enterprise-document-assistant-ai-service
 ```
 
-ASP.NET Core instrumentation includes:
-
-- inbound HTTP spans;
-- outgoing `HttpClient` spans, including optional provider requests;
-- runtime metrics;
-- custom Search, Ask, answer-generation, upload/enqueue, and ingestion-worker spans;
-- bounded trace, span, correlation, tenant, document, ingestion-job, provider-name, result-status, and controlled-failure attributes where applicable.
-
-FastAPI instrumentation includes inbound request spans and a custom counter for its indexing boundary.
+ASP.NET Core instrumentation includes inbound HTTP, outgoing HttpClient, runtime metrics, Search, Ask, answer-generation, upload, ingestion, and audit-operation signals. FastAPI includes correlated inbound request instrumentation.
 
 ## Application metrics
 
@@ -77,139 +53,193 @@ The custom meter is `EnterpriseDocumentAssistant.Api`.
 
 | Instrument | Type | Meaning |
 |---|---|---|
-| `document_assistant.authorization.denied` | Counter | HTTP 401 and 403 responses |
+| `document_assistant.authorization.denied` | Counter | Rejected authorization decisions |
 | `document_assistant.uploads.queued` | Counter | Uploads durably queued |
 | `document_assistant.search.requests` | Counter | Search requests |
-| `document_assistant.search.duration` | Histogram | Search duration in milliseconds |
+| `document_assistant.search.duration` | Histogram | Search duration |
 | `document_assistant.search.results` | Histogram | Visible result count |
 | `document_assistant.ask.requests` | Counter | Ask requests |
-| `document_assistant.ask.duration` | Histogram | Retrieval plus answer-generation duration |
-| `document_assistant.answer_generation.results` | Counter | Answered or insufficient-evidence results by provider/status |
-| `document_assistant.answer_generation.failures` | Counter | Controlled provider failures by provider/code/retryability |
-| `document_assistant.answer_generation.duration` | Histogram | Generation duration after retrieval |
+| `document_assistant.ask.duration` | Histogram | Retrieval plus generation duration |
+| `document_assistant.answer_generation.results` | Counter | Answer/insufficient-evidence results |
+| `document_assistant.answer_generation.failures` | Counter | Controlled provider failures |
+| `document_assistant.answer_generation.duration` | Histogram | Provider/local generation duration |
 | `document_assistant.answer_generation.input_tokens` | Histogram | Provider-reported input tokens when available |
 | `document_assistant.answer_generation.output_tokens` | Histogram | Provider-reported output tokens when available |
-| `document_assistant.ingestion.completed` | Counter | Completed jobs |
-| `document_assistant.ingestion.retried` | Counter | Jobs returned to Pending |
-| `document_assistant.ingestion.failed` | Counter | Terminal job failures |
+| `document_assistant.ingestion.completed` | Counter | Completed ingestion jobs |
+| `document_assistant.ingestion.retried` | Counter | Retried ingestion jobs |
+| `document_assistant.ingestion.failed` | Counter | Terminal ingestion failures |
 | `document_assistant.ingestion.recovered` | Counter | Abandoned jobs recovered |
 | `document_assistant.ingestion.duration` | Histogram | Worker processing duration |
 | `document_assistant.audit.persisted` | Counter | Application audit events persisted |
 | `document_assistant.audit.persistence_failures` | Counter | Supplementary audit persistence failures |
+| `document_assistant.audit.integrity_checks` | Counter | Audit-chain verification checks |
+| `document_assistant.audit.integrity_failures` | Counter | Failed audit-chain checks |
+| `document_assistant.audit.archive_runs` | Counter | Retention/archive worker runs |
+| `document_assistant.audit.archived_events` | Counter | Rows moved to the archive tier |
+| `document_assistant.audit.archive_failures` | Counter | Failed archive runs |
+| `document_assistant.audit.archive_duration` | Histogram | Archive-run duration |
 
-Metrics deliberately avoid user IDs, document IDs, file names, questions, source text, generated answer text, provider response text, API keys, and other unbounded or sensitive values. Provider name, status, controlled failure code, and retryability are bounded dimensions.
+Metric labels deliberately exclude tenant IDs, user IDs, document IDs, file names, correlation IDs, trace IDs, questions, source text, generated answers, tokens, provider bodies, scanner signatures, credentials, and other content-derived/high-cardinality values.
 
-## Structured logging
+## Durable audit ledger and hash chain
 
-The ASP.NET Core API writes JSON console logs with UTC timestamps, scopes, trace ID, span ID, and the log-safe `CorrelationLogId` digest. Worker scopes include document and ingestion-job identifiers. FastAPI uses structured JSON-style console logging.
+`audit_events` remains the active append-only audit table. New events receive database-generated, per-tenant integrity fields:
 
-The application must not log:
+- `chain_sequence`;
+- `previous_hash`;
+- `event_hash`.
 
-- bearer tokens;
-- document text or source chunks;
-- search query text;
-- question text;
-- generated answer text;
-- provider API keys;
-- provider response bodies;
-- PostgreSQL passwords or connection strings;
-- externally supplied file content;
-- raw externally supplied correlation text.
+The `BEFORE INSERT` trigger serializes same-tenant inserts using a transaction-scoped advisory lock and updates the tenant chain head in the same transaction. The event hash is SHA-256 over the previous hash plus a canonical representation of the bounded audit fields. Callers cannot supply a trusted chain sequence/hash because the trigger overwrites those values.
 
-Provider failures are logged using controlled application codes and retryability. Client responses and audit metadata do not include provider response bodies.
+Existing rows are deterministically backfilled in `(occurred_at, id)` order when the migration is applied.
 
-## Durable audit ledger
+This is **tamper-evident**, not externally immutable. A database superuser that can rewrite events, hashes, and chain heads remains inside the trust boundary. Stronger non-repudiation requires independently controlled chain-head anchoring or immutable signed storage.
 
-PostgreSQL table `audit_events` stores append-only tenant-aware audit records:
+## Audit archive and retention
 
-- occurrence time;
-- tenant;
-- authenticated actor and role;
-- event type and action;
-- resource type and identifier;
-- outcome;
-- correlation and trace identifiers;
-- bounded JSON metadata that excludes document/query/question/answer/provider-response content.
+`audit_event_archive` stores archived audit events with the original event ID, chain sequence, previous hash, event hash, and a separate archive timestamp. Forced tenant RLS applies to archived reads.
 
-Application roles receive only `SELECT` and `INSERT`; they do not receive `UPDATE` or `DELETE`.
+Application/platform/worker roles do not receive direct `UPDATE`, `DELETE`, or `TRUNCATE` access to active or archived audit tables. The only application retention path is the bounded `archive_audit_events(cutoff, batch_size)` `SECURITY DEFINER` function, and execute permission is granted only to the privileged Worker role.
 
-Forced PostgreSQL Row-Level Security applies to the audit table:
+`AuditRetentionWorker` is registered only when the process runs Worker responsibilities and has `PostgresPrivileged`. It is **disabled by default**. When enabled it:
 
-- `document_app` can insert and read only the active `app.tenant_id`;
-- `document_privileged` can insert and read across tenants;
-- the API exposes `GET /api/audit/events` only to `Admin` and `PlatformAdmin`;
-- `Admin` is restricted to its token tenant;
-- `PlatformAdmin` can retrieve cross-tenant events through the explicit privileged path;
-- ordinary `User` tokens receive `403 Forbidden`.
+1. computes a retention cutoff from `RetentionDays`;
+2. moves rows in configured batches;
+3. stops at `MaxBatchesPerRun` or a short batch;
+4. records bounded success/failure metrics;
+5. never grants or uses direct application-table deletion privileges.
 
-## Atomic mutation events
-
-Database triggers write base audit events in the same transaction as:
-
-- document creation;
-- document status changes;
-- ingestion-job creation;
-- ingestion-job status changes.
-
-This ensures the durable state transition and its base audit record commit or roll back together. These trigger records use a safe system/owner fallback when no application correlation context is available.
-
-Application endpoints add correlated semantic events for:
-
-- document listing;
-- metadata creation;
-- upload and durable enqueue;
-- processing-status access;
-- semantic search;
-- grounded Ask and answer-provider outcomes;
-- audit-ledger access.
-
-For Search and Ask, audit metadata stores bounded operational values such as `topK`, result/source count, duration, answer status, provider/model identifiers, grounding state, reason/failure code, retryability, and provider-reported token counts. Query, question, source, generated answer, credential, and provider-response text are never stored.
-
-## Local configuration
-
-The default stack requires no collector and no answer-provider credential:
+Default settings:
 
 ```text
-OTEL_EXPORTER_OTLP_ENDPOINT=
-ANSWER_GENERATION_PROVIDER=Deterministic
+AUDIT_RETENTION_ENABLED=false
+AUDIT_RETENTION_DAYS=90
+AUDIT_RETENTION_BATCH_SIZE=1000
+AUDIT_RETENTION_MAX_BATCHES=10
+AUDIT_RETENTION_INTERVAL=1.00:00:00
+AUDIT_RETENTION_INITIAL_DELAY=00:01:00
 ```
 
-To export to an OTLP/HTTP collector reachable from Docker, set a base endpoint such as:
+Archival is not legal deletion. Archive purge, legal hold, subject-access/export, jurisdiction-specific retention, and immutable backup policy remain deployment responsibilities.
 
-```text
-OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+## Integrity verification API
+
+`GET /api/audit/integrity` requires the existing Admin authorization policy.
+
+Tenant Admin:
+
+```http
+GET /api/audit/integrity
+Authorization: Bearer <tenant-admin-token>
 ```
 
-The .NET exporter uses the configured endpoint. The Python exporter sends traces to `/v1/traces` and metrics to `/v1/metrics` beneath that base endpoint.
+The Tenant Admin is always scoped to its authenticated tenant. Supplying a different `tenantId` is rejected.
 
-External answer-provider configuration is documented in [RAG_ASK_ENDPOINT.md](RAG_ASK_ENDPOINT.md). Provider credentials must come from trusted secret/configuration infrastructure rather than logs, source control, metrics, or audit details.
+PlatformAdmin:
 
-## Validation
+```http
+GET /api/audit/integrity?tenantId=<target-tenant>
+Authorization: Bearer <platform-admin-token>
+```
 
-CI verifies:
+PlatformAdmin must name the tenant explicitly. The response contains only:
 
-- valid and invalid correlation-ID behavior in both services;
-- deterministic log-safe hashing of external correlation IDs;
-- liveness and dependency-aware readiness;
-- audit-table constraints, indexes, forced RLS, policies, and triggers;
-- absence of `UPDATE` and `DELETE` grants for application roles;
-- tenant-admin isolation and PlatformAdmin visibility;
-- failure of an application-role attempt to update audit rows;
-- absence of known sensitive search/question/provider values from serialized audit responses;
-- controlled insufficient-evidence and provider-failure response contracts;
-- provider-protocol tests that use no real credentials;
-- strict answer-grounding regression thresholds and a retained machine-readable report;
-- .NET and Python unit/integration tests, CodeQL, and dependency review.
+- tenant ID;
+- `isValid`;
+- `checkedCount`;
+- `firstBrokenSequence` when present;
+- `headSequence`.
+
+It does not return audit event details or hashes. Verification spans archive and active rows in chain order. The verification action itself is audited with bounded result metadata.
+
+`GET /api/audit/events` includes archived rows by default; `includeArchived=false` limits the query to the active table.
+
+## Optional local operational stack
+
+The normal command remains unchanged:
+
+```bash
+docker compose up --build
+```
+
+To run the versioned local observability backend:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+```
+
+The override starts:
+
+- OpenTelemetry Collector;
+- Prometheus;
+- Grafana;
+- Alertmanager.
+
+It redirects application OTLP export to the Collector. Prometheus scrapes the Collector Prometheus exporter; Grafana uses a provisioned Prometheus datasource and version-controlled dashboard; Prometheus loads version-controlled recording/alert rules and routes alerts to Alertmanager.
+
+The committed Alertmanager receiver is `local-null`. It sends nothing externally. Production notification receivers require explicit secret-managed configuration.
+
+Default local endpoints:
+
+| Service | URL |
+|---|---|
+| Collector OTLP/HTTP | `http://localhost:4318` |
+| Collector health | `http://localhost:13133` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3001` |
+| Alertmanager | `http://localhost:9093` |
+
+Grafana admin credentials in `.env.example` are local-development values only.
+
+## SLOs, alerts, and runbooks
+
+The executable Prometheus rules are in `infra/observability/alerts.yml`. Initial local objectives and their limitations are documented in [SLO_AND_ALERTING.md](SLO_AND_ALERTING.md). Incident procedures and backup/restore verification are in [runbooks/AUDIT_OPERATIONS.md](runbooks/AUDIT_OPERATIONS.md).
+
+Current alert names:
+
+- `AuditPersistenceFailure`;
+- `AuditIntegrityFailure`;
+- `AuditArchiveFailure`;
+- `IngestionTerminalFailureSpike`;
+- `ApiErrorBudgetBurn`;
+- `ApiLatencySloViolation`;
+- `TelemetryPipelineUnavailable`.
+
+The repository's availability and latency targets are development/pre-production guardrails, not production commitments.
+
+## Structured logging boundary
+
+Application logs must not include bearer/invitation tokens, document/source content, search or question text, generated answers, provider/scanner response bodies, API keys, database passwords/full connection strings, uploaded bytes, or raw externally supplied correlation text.
+
+Audit-retention logs include only counts and cutoff timestamps. Audit-integrity metrics include only validity/result counts; tenant identifiers are not metric labels.
+
+## CI validation
+
+CI now verifies:
+
+- existing correlation, health, tenant, RLS, retrieval, answer, document-format, and audit behavior;
+- audit chain generation under concurrent same-tenant inserts;
+- tamper detection after privileged payload mutation;
+- cross-tenant verifier denial for tenant runtime roles;
+- archive continuity across active + archived tiers;
+- absence of direct audit mutation privileges;
+- bounded retention worker batching/failure/cancellation behavior;
+- base and observability Compose configurations;
+- optional stack startup and Collector health;
+- OTLP ASP.NET metrics arriving in Prometheus;
+- Prometheus recording/alert rule loading;
+- Grafana datasource/dashboard provisioning;
+- version-controlled runbook links and pinned observability image tags.
 
 ## Remaining production work
 
-This foundation does not provide:
+This foundation still does not provide:
 
-- a bundled production collector or telemetry backend;
-- dashboards, alert rules, or service-level objectives;
-- long-term audit retention, archival, legal hold, or deletion automation;
-- tamper-evident hashing or external immutable audit storage;
-- sampling policy tuned from production traffic;
-- end-to-end load, cardinality, provider-cost, or exporter-failure testing;
-- production secret management or identity-provider lifecycle integration;
-- an approved provider account, provider contract, data-processing agreement, or factual-accuracy guarantee.
+- external immutable audit anchoring or signed checkpoints;
+- jurisdiction-specific archive purge/legal-hold automation;
+- production notification integrations or paging ownership;
+- a long-term production metrics/traces/logs backend or HA observability topology;
+- production-calibrated multi-window error-budget burn rules;
+- load-derived sampling and cardinality budgets;
+- proven RPO/RTO values (the runbook defines exercises but repeated evidence is required);
+- centralized secret management or production identity-provider lifecycle integration.

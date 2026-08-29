@@ -56,4 +56,24 @@ public sealed class InMemoryAuditEventRepository : IAuditEventRepository
             return Task.FromResult(result);
         }
     }
+
+    public Task<AuditIntegrityResult> VerifyIntegrityAsync(
+        AuditIntegrityQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        var tenantId = query.ValidateAndNormalize();
+
+        lock (_lock)
+        {
+            var count = _events.LongCount(item => item.TenantId == tenantId);
+            return Task.FromResult(new AuditIntegrityResult(
+                tenantId,
+                IsValid: true,
+                CheckedCount: count,
+                FirstBrokenSequence: null,
+                HeadSequence: count));
+        }
+    }
 }

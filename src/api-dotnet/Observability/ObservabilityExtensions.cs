@@ -1,3 +1,4 @@
+using EnterpriseDocumentAssistant.Api.Audit;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -21,6 +22,18 @@ public static class ObservabilityExtensions
 
         builder.Services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
         builder.Services.AddTransient<CorrelationPropagationHandler>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.Configure<AuditRetentionOptions>(
+            builder.Configuration.GetSection(AuditRetentionOptions.SectionName));
+
+        var hostingMode = ApplicationHostingMode.FromConfiguration(builder.Configuration);
+        var hasPrivilegedDatabase =
+            !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("PostgresPrivileged"));
+        if (hostingMode.RunsWorker && hasPrivilegedDatabase)
+        {
+            builder.Services.AddSingleton<IAuditMaintenanceRepository, PostgresAuditMaintenanceRepository>();
+            builder.Services.AddHostedService<AuditRetentionWorker>();
+        }
 
         builder.Logging.ClearProviders();
         builder.Logging.Configure(options =>
