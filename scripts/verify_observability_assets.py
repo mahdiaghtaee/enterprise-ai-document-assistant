@@ -10,6 +10,7 @@ RUNBOOK = ROOT / "docs" / "runbooks" / "AUDIT_OPERATIONS.md"
 SLO = ROOT / "docs" / "SLO_AND_ALERTING.md"
 DASHBOARD = ROOT / "infra" / "observability" / "grafana" / "dashboards" / "operations.json"
 COMPOSE = ROOT / "docker-compose.observability.yml"
+COLLECTOR = ROOT / "infra" / "observability" / "otel-collector.yaml"
 
 EXPECTED_ALERTS = {
     "AuditPersistenceFailure",
@@ -34,6 +35,8 @@ EXPECTED_IMAGES = {
     "prom/alertmanager:v0.33.1",
     "grafana/grafana:13.1.0",
 }
+
+EXPECTED_HTTP_SERVER_METRIC = "http_server_request_duration_seconds"
 
 FORBIDDEN_METRIC_LABEL_TERMS = {
     "tenant_id",
@@ -69,6 +72,7 @@ def main() -> None:
     runbook_text = RUNBOOK.read_text(encoding="utf-8")
     slo_text = SLO.read_text(encoding="utf-8")
     compose_text = COMPOSE.read_text(encoding="utf-8")
+    collector_text = COLLECTOR.read_text(encoding="utf-8")
     dashboard = json.loads(DASHBOARD.read_text(encoding="utf-8"))
 
     actual_alerts = set(re.findall(r"^\s*- alert:\s*([A-Za-z0-9_:.-]+)\s*$", alerts_text, re.MULTILINE))
@@ -80,6 +84,15 @@ def main() -> None:
     missing_records = EXPECTED_RECORDING_RULES - actual_records
     if missing_records:
         raise SystemExit(f"Missing expected recording rules: {sorted(missing_records)}")
+
+    if "translation_strategy: UnderscoreEscapingWithSuffixes" not in collector_text:
+        raise SystemExit("Prometheus exporter translation strategy must explicitly preserve unit/type suffixes")
+    if "http_server_request_duration_milliseconds" in alerts_text:
+        raise SystemExit("Legacy millisecond HTTP server metric must not be used in Prometheus rules")
+    if f"{EXPECTED_HTTP_SERVER_METRIC}_count" not in alerts_text:
+        raise SystemExit("API request-rate rules must use the stable seconds-based HTTP server metric")
+    if f"{EXPECTED_HTTP_SERVER_METRIC}_bucket" not in alerts_text:
+        raise SystemExit("API latency rules must use the stable seconds-based HTTP server histogram")
 
     anchors = markdown_anchors(runbook_text)
     referenced_anchors = set(
@@ -120,7 +133,7 @@ def main() -> None:
         "Validated observability assets: "
         f"{len(EXPECTED_ALERTS)} alerts, "
         f"{len(EXPECTED_RECORDING_RULES)} recording rules, "
-        f"{len(dashboard['panels'])} dashboard panels, pinned images, and runbook links."
+        f"{len(dashboard['panels'])} dashboard panels, pinned images, metric units, and runbook links."
     )
 
 
