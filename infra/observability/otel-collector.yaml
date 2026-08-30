@@ -20,6 +20,7 @@ exporters:
   prometheus:
     endpoint: 0.0.0.0:9464
     enable_open_metrics: true
+    translation_strategy: UnderscoreEscapingWithSuffixes
   debug:
     verbosity: basic
 
