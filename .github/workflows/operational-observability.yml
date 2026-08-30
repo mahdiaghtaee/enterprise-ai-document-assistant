@@ -106,7 +106,7 @@ jobs:
 
           for attempt in $(seq 1 30); do
             curl --fail --silent --get \
-              --data-urlencode 'query=http_server_request_duration_milliseconds_count' \
+              --data-urlencode 'query=http_server_request_duration_seconds_count' \
               http://localhost:9090/api/v1/query > /tmp/prometheus-query.json
 
             if python3 - <<'PY'
