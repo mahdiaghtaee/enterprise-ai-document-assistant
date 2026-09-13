@@ -184,7 +184,7 @@ jobs:
           assert datasource['uid'] == 'prometheus', datasource
           assert datasource['type'] == 'prometheus', datasource
           assert dashboard['dashboard']['uid'] == 'enterprise-document-assistant-operations', dashboard
-          assert dashboard['meta']['isProvisioned'] is True, dashboard['meta']
+          assert dashboard['meta']['provisioned'] is True, dashboard['meta']
           PY
 
       - name: Show service logs on failure
