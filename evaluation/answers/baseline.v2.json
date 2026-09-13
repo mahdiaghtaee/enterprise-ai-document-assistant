@@ -1,0 +1,18 @@
+{
+  "datasetVersion": "2.0.0",
+  "observed": {
+    "caseAccuracy": 1,
+    "groundedAnswerAccuracy": 1,
+    "insufficientEvidenceAccuracy": 1,
+    "groundingRejectionAccuracy": 1,
+    "providerCallExpectationAccuracy": 1
+  },
+  "thresholds": {
+    "minimumCaseAccuracy": 1,
+    "minimumGroundedAnswerAccuracy": 1,
+    "minimumInsufficientEvidenceAccuracy": 1,
+    "minimumGroundingRejectionAccuracy": 1,
+    "minimumProviderCallExpectationAccuracy": 1,
+    "maximumMeanLatencyMs": 250
+  }
+}
