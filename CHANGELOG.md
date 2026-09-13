@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+## 0.4.0 - 2026-09-13
+
 ### Added
 
 - Per-tenant tamper-evident audit chains with database-generated sequence, previous-hash, and SHA-256 event-hash fields.
@@ -74,7 +76,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Audit maintenance runs only in Worker responsibilities with `PostgresPrivileged`, and retention remains disabled unless explicitly configured.
 - `/health` reports whether audit retention is enabled for the running Worker without exposing cutoff or database configuration.
 - The local observability backend is opt-in through `docker-compose.observability.yml`; the normal default Compose stack remains collector-free.
-- Prometheus SLO recording rules use the Collector-exported ASP.NET Core millisecond histogram and normalize p95 to seconds.
+- Prometheus SLO recording rules use the stable Collector-exported ASP.NET Core seconds-based HTTP duration histogram with deterministic unit/type suffix translation.
 - The committed Alertmanager receiver is deliberately local-only and sends no external notifications.
 - Upload processing validates metadata, actual document structure, and the configured malware verdict before storing files or creating durable document/job records.
 - The Worker re-applies format-specific page, archive, XML, extracted-character, and cancellation boundaries before semantic indexing.
@@ -91,6 +93,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Search, Ask, lifecycle, upload, and audit-operation telemetry stores bounded operational values while excluding query, question, source, answer, invitation-secret, scanner-response, response-body, credential, tenant-ID, user-ID, and document-ID metric labels.
 - Ask keeps its original response fields while adding answer status, provider, model, grounding, and reason metadata.
 - Documentation now treats audit operations, safe document-format expansion, managed tenant lifecycle, split-worker trust boundaries, tenant isolation, retrieval evaluation, and grounded-answer providers as delivered foundations.
+- The opt-in observability Compose profile exports .NET metrics on a bounded 5-second cadence, while CI allows bounded ingestion headroom to avoid racing the first OTLP export and Prometheus scrape.
+- Dependabot now separates routine maintenance from major upgrades, limits test-project NuGet updates to test-owned dependencies, and treats Python 0.x minor jumps as independent reviews rather than routine grouped patches.
+- Routine dependency servicing moved the API to ASP.NET Core 8.0.31, Npgsql 8.0.9, OpenTelemetry 1.18.0, PdfPig 0.1.16, and Swashbuckle.AspNetCore 6.9.0; Python development requirements now allow httpx 0.28.1.
+
+### Security
+
+- The .NET test project explicitly pins System.Text.Json 8.0.6, superseding the older 8.0.5 Dependabot proposal and avoiding selection of the vulnerable 8.0.0 dependency.
 
 ### Migration notes
 
