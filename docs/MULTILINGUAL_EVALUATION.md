@@ -66,6 +66,18 @@ The existing answer evaluator continues to produce deterministic case outcomes f
 
 A Persian or mixed-language regression can therefore fail CI even when an aggregate metric remains above its aggregate threshold.
 
+### Measured deterministic baseline
+
+The first reviewed v2 run produced:
+
+| Segment | Precision@K | Recall@K | MRR | Answer accuracy |
+|---|---:|---:|---:|---:|
+| English | 0.4444 | 1.0000 | 1.0000 | 1.0000 |
+| Persian | 0.3333 | 0.6667 | 0.5833 | 1.0000 |
+| Mixed English/Persian | 0.2778 | 0.5000 | 0.5000 | 1.0000 |
+
+The committed thresholds are intentionally below these measured values so normal deterministic behavior has headroom while a material segment regression still fails CI. The lower Persian and mixed-language retrieval scores are visible limitations of the deterministic embedding baseline, not hidden by the English results.
+
 ## Run Locally
 
 From the repository root:
