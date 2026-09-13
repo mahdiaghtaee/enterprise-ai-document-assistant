@@ -27,19 +27,19 @@
   "thresholds": {
     "retrieval": {
       "en": {
-        "minimumPrecisionAtK": 0.05,
-        "minimumRecallAtK": 0.15,
-        "minimumMeanReciprocalRank": 0.15
+        "minimumPrecisionAtK": 0.4,
+        "minimumRecallAtK": 0.95,
+        "minimumMeanReciprocalRank": 0.95
       },
       "fa": {
-        "minimumPrecisionAtK": 0.05,
-        "minimumRecallAtK": 0.15,
-        "minimumMeanReciprocalRank": 0.15
+        "minimumPrecisionAtK": 0.28,
+        "minimumRecallAtK": 0.6,
+        "minimumMeanReciprocalRank": 0.5
       },
       "mixed": {
-        "minimumPrecisionAtK": 0.05,
-        "minimumRecallAtK": 0.15,
-        "minimumMeanReciprocalRank": 0.15
+        "minimumPrecisionAtK": 0.22,
+        "minimumRecallAtK": 0.45,
+        "minimumMeanReciprocalRank": 0.45
       }
     },
     "answers": {
@@ -333,5 +333,35 @@
       "citationJudgment": "valid",
       "completenessJudgment": "complete"
     }
-  ]
+  ],
+  "observed": {
+    "retrieval": {
+      "en": {
+        "precisionAtK": 0.4444444444444444,
+        "recallAtK": 1,
+        "meanReciprocalRank": 1
+      },
+      "fa": {
+        "precisionAtK": 0.3333333333333333,
+        "recallAtK": 0.6666666666666666,
+        "meanReciprocalRank": 0.5833333333333334
+      },
+      "mixed": {
+        "precisionAtK": 0.27777777777777773,
+        "recallAtK": 0.5,
+        "meanReciprocalRank": 0.5
+      }
+    },
+    "answers": {
+      "en": {
+        "caseAccuracy": 1
+      },
+      "fa": {
+        "caseAccuracy": 1
+      },
+      "mixed": {
+        "caseAccuracy": 1
+      }
+    }
+  }
 }
