@@ -1,0 +1,90 @@
+name: Multilingual quality evaluation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  multilingual-evaluation:
+    name: Segmented English Persian and mixed-language gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore evaluation tools
+        run: |
+          dotnet restore tools/retrieval-evaluation/EnterpriseDocumentAssistant.RetrievalEvaluation.csproj
+          dotnet restore tools/answer-evaluation/EnterpriseDocumentAssistant.AnswerEvaluation.csproj
+
+      - name: Run multilingual retrieval evaluation
+        run: |
+          mkdir -p artifacts
+          dotnet run \
+            --project tools/retrieval-evaluation/EnterpriseDocumentAssistant.RetrievalEvaluation.csproj \
+            --configuration Release \
+            --no-restore \
+            -- \
+            --dataset evaluation/retrieval/corpus.v2.json \
+            --baseline evaluation/retrieval/baseline.v2.json \
+            --output artifacts/retrieval-evaluation-v2.json
+
+      - name: Run multilingual answer evaluation
+        run: >-
+          dotnet run
+          --project tools/answer-evaluation/EnterpriseDocumentAssistant.AnswerEvaluation.csproj
+          --configuration Release
+          --no-restore
+          --
+          --dataset evaluation/answers/cases.v2.json
+          --baseline evaluation/answers/baseline.v2.json
+          --output artifacts/answer-evaluation-v2.json
+
+      - name: Enforce segmented multilingual thresholds
+        run: >-
+          python3 scripts/verify_multilingual_evaluation.py
+          --retrieval-report artifacts/retrieval-evaluation-v2.json
+          --answer-report artifacts/answer-evaluation-v2.json
+          --manifest evaluation/multilingual/manifest.v1.json
+          --output artifacts/multilingual-evaluation.json
+
+      - name: Verify report contract
+        run: |
+          python3 - <<'PY'
+          import json
+
+          with open('artifacts/multilingual-evaluation.json', encoding='utf-8') as handle:
+              report = json.load(handle)
+
+          assert report['retrievalDatasetVersion'] == '2.0.0', report
+          assert report['answerDatasetVersion'] == '2.0.0', report
+          assert report['passed'] is True, report
+          assert set(report['retrieval']) == {'en', 'fa', 'mixed'}, report
+          assert set(report['answers']) == {'en', 'fa', 'mixed'}, report
+          assert report['bootstrapIterations'] == 1000, report
+          PY
+
+      - name: Upload multilingual evaluation reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: multilingual-evaluation-reports
+          path: |
+            artifacts/retrieval-evaluation-v2.json
+            artifacts/answer-evaluation-v2.json
+            artifacts/multilingual-evaluation.json
+          if-no-files-found: error
+          retention-days: 14

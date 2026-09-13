@@ -89,6 +89,8 @@ Implemented:
 - versioned tenant-safe retrieval corpus and relevance judgments
 - repeatable Precision@K, Recall@K, MRR, empty-query, and local latency evaluation
 - versioned grounded-answer cases for citation, insufficient evidence, and provider-failure gates
+- reviewed English, Persian, and mixed-language quality cases with per-language/category metrics and deterministic bootstrap intervals
+- CI-enforced segmented regression thresholds so Persian or mixed-language regressions cannot be hidden by aggregate scores
 - machine-readable regression baselines, non-zero failure exit codes, and retained CI artifacts
 - Docker Compose verification, operational-observability integration, .NET/Python tests, coverage floors, direct PostgreSQL RLS/audit tests, CodeQL, and Dependency Review
 
@@ -104,7 +106,7 @@ Not implemented yet:
 - proven RPO/RTO values from repeated restore exercises
 - encrypted document storage and centralized secret management
 - approved production provider account or provider-specific factual-accuracy validation
-- representative production-scale or statistically validated multilingual retrieval/answer evaluation
+- production-scale or statistically representative multilingual retrieval/answer evaluation beyond the committed reviewed synthetic suite
 - OCR execution, rich PDF layout/table reconstruction, password-protected-document workflows, or a bundled production malware engine
 
 Managed membership checks, database isolation, file-format gates, grounding gates, tamper-evident audit chains, and bounded operational telemetry reduce disclosure and accountability risks, but this reference project must not be used for confidential or regulated documents until identity-provider lifecycle, encryption, secret management, legal retention, invitation delivery, malware operations, external-provider governance, immutable-audit requirements, and production operational review are completed. See [SECURITY.md](SECURITY.md).
@@ -231,6 +233,7 @@ Detailed setup and implementation guidance:
 - [SLO and alerting foundation](docs/SLO_AND_ALERTING.md)
 - [Audit and reliability operations runbook](docs/runbooks/AUDIT_OPERATIONS.md)
 - [Retrieval quality evaluation](docs/RETRIEVAL_EVALUATION.md)
+- [Multilingual quality evaluation](docs/MULTILINGUAL_EVALUATION.md)
 
 ## Tenant Lifecycle Example
 

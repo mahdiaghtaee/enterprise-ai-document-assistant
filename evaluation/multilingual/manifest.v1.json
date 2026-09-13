@@ -1,0 +1,367 @@
+{
+  "version": "1.0.0",
+  "seed": 20260913,
+  "bootstrapIterations": 1000,
+  "coverage": {
+    "languages": [
+      "en",
+      "fa",
+      "mixed"
+    ],
+    "retrievalCategories": [
+      "exact_retrieval",
+      "vocabulary_mismatch",
+      "ambiguity",
+      "duplicates",
+      "long_document_context",
+      "format_derived"
+    ],
+    "answerCategories": [
+      "grounded_answer",
+      "insufficient_evidence",
+      "conflicting_evidence",
+      "adversarial_source",
+      "format_derived"
+    ]
+  },
+  "thresholds": {
+    "retrieval": {
+      "en": {
+        "minimumPrecisionAtK": 0.4,
+        "minimumRecallAtK": 0.95,
+        "minimumMeanReciprocalRank": 0.95
+      },
+      "fa": {
+        "minimumPrecisionAtK": 0.28,
+        "minimumRecallAtK": 0.6,
+        "minimumMeanReciprocalRank": 0.5
+      },
+      "mixed": {
+        "minimumPrecisionAtK": 0.22,
+        "minimumRecallAtK": 0.45,
+        "minimumMeanReciprocalRank": 0.45
+      }
+    },
+    "answers": {
+      "en": {
+        "minimumCaseAccuracy": 1
+      },
+      "fa": {
+        "minimumCaseAccuracy": 1
+      },
+      "mixed": {
+        "minimumCaseAccuracy": 1
+      }
+    }
+  },
+  "retrievalCases": [
+    {
+      "id": "en-exact-retrieval",
+      "language": "en",
+      "category": "exact_retrieval",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic exact_retrieval case for the en segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "en-vocabulary-mismatch",
+      "language": "en",
+      "category": "vocabulary_mismatch",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic vocabulary_mismatch case for the en segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "en-ambiguity",
+      "language": "en",
+      "category": "ambiguity",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic ambiguity case for the en segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "en-duplicates",
+      "language": "en",
+      "category": "duplicates",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic duplicates case for the en segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "en-long-document-context",
+      "language": "en",
+      "category": "long_document_context",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic long_document_context case for the en segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "en-format-derived",
+      "language": "en",
+      "category": "format_derived",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic format_derived case for the en segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "fa-exact-retrieval",
+      "language": "fa",
+      "category": "exact_retrieval",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic exact_retrieval case for the fa segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "fa-vocabulary-mismatch",
+      "language": "fa",
+      "category": "vocabulary_mismatch",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic vocabulary_mismatch case for the fa segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "fa-ambiguity",
+      "language": "fa",
+      "category": "ambiguity",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic ambiguity case for the fa segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "fa-duplicates",
+      "language": "fa",
+      "category": "duplicates",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic duplicates case for the fa segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "fa-long-document-context",
+      "language": "fa",
+      "category": "long_document_context",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic long_document_context case for the fa segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "fa-format-derived",
+      "language": "fa",
+      "category": "format_derived",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic format_derived case for the fa segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "mixed-exact-retrieval",
+      "language": "mixed",
+      "category": "exact_retrieval",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic exact_retrieval case for the mixed segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "mixed-vocabulary-mismatch",
+      "language": "mixed",
+      "category": "vocabulary_mismatch",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic vocabulary_mismatch case for the mixed segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "mixed-ambiguity",
+      "language": "mixed",
+      "category": "ambiguity",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic ambiguity case for the mixed segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "mixed-duplicates",
+      "language": "mixed",
+      "category": "duplicates",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic duplicates case for the mixed segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "mixed-long-document-context",
+      "language": "mixed",
+      "category": "long_document_context",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic long_document_context case for the mixed segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    },
+    {
+      "id": "mixed-format-derived",
+      "language": "mixed",
+      "category": "format_derived",
+      "reviewer": "repository-maintainer",
+      "rationale": "Reviewed synthetic format_derived case for the mixed segment; the declared relevance set is intentionally limited to the listed chunk(s)."
+    }
+  ],
+  "answerCases": [
+    {
+      "id": "en-grounded-answer",
+      "language": "en",
+      "category": "grounded_answer",
+      "reviewer": "repository-maintainer",
+      "rationale": "Answer is explicitly supported by source 1 and cites that source.",
+      "supportJudgment": "supported",
+      "citationJudgment": "valid",
+      "completenessJudgment": "complete"
+    },
+    {
+      "id": "en-insufficient-evidence",
+      "language": "en",
+      "category": "insufficient_evidence",
+      "reviewer": "repository-maintainer",
+      "rationale": "Evidence is deliberately below the confidence gate and must be rejected before provider invocation.",
+      "supportJudgment": "insufficient",
+      "citationJudgment": "not_applicable",
+      "completenessJudgment": "not_applicable"
+    },
+    {
+      "id": "en-conflicting-evidence",
+      "language": "en",
+      "category": "conflicting_evidence",
+      "reviewer": "repository-maintainer",
+      "rationale": "Near-tied sources make incompatible approval claims; the answer path must fail closed.",
+      "supportJudgment": "conflicting",
+      "citationJudgment": "not_applicable",
+      "completenessJudgment": "not_applicable"
+    },
+    {
+      "id": "en-adversarial-source",
+      "language": "en",
+      "category": "adversarial_source",
+      "reviewer": "repository-maintainer",
+      "rationale": "Source contains instruction-like text; an uncited provider answer must still be rejected by grounding validation.",
+      "supportJudgment": "untrusted_source",
+      "citationJudgment": "missing",
+      "completenessJudgment": "not_accepted"
+    },
+    {
+      "id": "en-format-derived",
+      "language": "en",
+      "category": "format_derived",
+      "reviewer": "repository-maintainer",
+      "rationale": "The answer is supported by deterministic text representing a parsed PDF table row.",
+      "supportJudgment": "supported",
+      "citationJudgment": "valid",
+      "completenessJudgment": "complete"
+    },
+    {
+      "id": "fa-grounded-answer",
+      "language": "fa",
+      "category": "grounded_answer",
+      "reviewer": "repository-maintainer",
+      "rationale": "Answer is explicitly supported by source 1 and cites that source.",
+      "supportJudgment": "supported",
+      "citationJudgment": "valid",
+      "completenessJudgment": "complete"
+    },
+    {
+      "id": "fa-insufficient-evidence",
+      "language": "fa",
+      "category": "insufficient_evidence",
+      "reviewer": "repository-maintainer",
+      "rationale": "Evidence is deliberately below the confidence gate and must be rejected before provider invocation.",
+      "supportJudgment": "insufficient",
+      "citationJudgment": "not_applicable",
+      "completenessJudgment": "not_applicable"
+    },
+    {
+      "id": "fa-conflicting-evidence",
+      "language": "fa",
+      "category": "conflicting_evidence",
+      "reviewer": "repository-maintainer",
+      "rationale": "Near-tied sources make incompatible approval claims; the answer path must fail closed.",
+      "supportJudgment": "conflicting",
+      "citationJudgment": "not_applicable",
+      "completenessJudgment": "not_applicable"
+    },
+    {
+      "id": "fa-adversarial-source",
+      "language": "fa",
+      "category": "adversarial_source",
+      "reviewer": "repository-maintainer",
+      "rationale": "Source contains instruction-like text; an uncited provider answer must still be rejected by grounding validation.",
+      "supportJudgment": "untrusted_source",
+      "citationJudgment": "missing",
+      "completenessJudgment": "not_accepted"
+    },
+    {
+      "id": "fa-format-derived",
+      "language": "fa",
+      "category": "format_derived",
+      "reviewer": "repository-maintainer",
+      "rationale": "The answer is supported by deterministic text representing a parsed PDF table row.",
+      "supportJudgment": "supported",
+      "citationJudgment": "valid",
+      "completenessJudgment": "complete"
+    },
+    {
+      "id": "mixed-grounded-answer",
+      "language": "mixed",
+      "category": "grounded_answer",
+      "reviewer": "repository-maintainer",
+      "rationale": "Answer is explicitly supported by source 1 and cites that source.",
+      "supportJudgment": "supported",
+      "citationJudgment": "valid",
+      "completenessJudgment": "complete"
+    },
+    {
+      "id": "mixed-insufficient-evidence",
+      "language": "mixed",
+      "category": "insufficient_evidence",
+      "reviewer": "repository-maintainer",
+      "rationale": "Evidence is deliberately below the confidence gate and must be rejected before provider invocation.",
+      "supportJudgment": "insufficient",
+      "citationJudgment": "not_applicable",
+      "completenessJudgment": "not_applicable"
+    },
+    {
+      "id": "mixed-conflicting-evidence",
+      "language": "mixed",
+      "category": "conflicting_evidence",
+      "reviewer": "repository-maintainer",
+      "rationale": "Near-tied sources make incompatible approval claims; the answer path must fail closed.",
+      "supportJudgment": "conflicting",
+      "citationJudgment": "not_applicable",
+      "completenessJudgment": "not_applicable"
+    },
+    {
+      "id": "mixed-adversarial-source",
+      "language": "mixed",
+      "category": "adversarial_source",
+      "reviewer": "repository-maintainer",
+      "rationale": "Source contains instruction-like text; an uncited provider answer must still be rejected by grounding validation.",
+      "supportJudgment": "untrusted_source",
+      "citationJudgment": "missing",
+      "completenessJudgment": "not_accepted"
+    },
+    {
+      "id": "mixed-format-derived",
+      "language": "mixed",
+      "category": "format_derived",
+      "reviewer": "repository-maintainer",
+      "rationale": "The answer is supported by deterministic text representing a parsed PDF table row.",
+      "supportJudgment": "supported",
+      "citationJudgment": "valid",
+      "completenessJudgment": "complete"
+    }
+  ],
+  "observed": {
+    "retrieval": {
+      "en": {
+        "precisionAtK": 0.4444444444444444,
+        "recallAtK": 1,
+        "meanReciprocalRank": 1
+      },
+      "fa": {
+        "precisionAtK": 0.3333333333333333,
+        "recallAtK": 0.6666666666666666,
+        "meanReciprocalRank": 0.5833333333333334
+      },
+      "mixed": {
+        "precisionAtK": 0.27777777777777773,
+        "recallAtK": 0.5,
+        "meanReciprocalRank": 0.5
+      }
+    },
+    "answers": {
+      "en": {
+        "caseAccuracy": 1
+      },
+      "fa": {
+        "caseAccuracy": 1
+      },
+      "mixed": {
+        "caseAccuracy": 1
+      }
+    }
+  }
+}

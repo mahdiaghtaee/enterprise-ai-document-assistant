@@ -279,19 +279,29 @@ Remaining document-processing work:
 - file-at-rest encryption and object-storage lifecycle policies;
 - representative document-format corpus covering large, multilingual, malformed, and adversarial files.
 
-## Next Priority — Representative Multilingual Evaluation
+## Representative Multilingual Evaluation (Completed Deterministic Foundation)
 
-Goal: expand the currently small synthetic retrieval/answer baselines into a reviewed, representative, multilingual quality suite before making broader provider or accuracy claims.
+Goal: expand the small synthetic retrieval/answer baselines into a reviewed multilingual regression suite before making broader provider or accuracy claims.
 
-Planned work:
+Delivered:
 
-- versioned English/Persian and mixed-language document/query/answer cases;
-- duplicate, long-document, ambiguous, adversarial, and format-derived cases;
-- human-reviewed relevance, answer-support, completeness, and citation-correctness judgments;
-- category-level metrics and confidence intervals;
-- explicit regression thresholds reviewed against measured baseline behavior;
-- one approved external-provider comparison using non-sensitive evaluation data only;
-- no production-accuracy claim unless the evaluated corpus and statistical evidence justify it.
+- versioned English, Persian, and mixed English/Persian retrieval and answer cases;
+- retrieval coverage for exact matching, vocabulary mismatch, ambiguity, duplicates, long-context text, and format-derived text;
+- answer coverage for grounded answers, insufficient evidence, conflicting evidence, adversarial/instruction-like sources, and format-derived evidence;
+- versioned reviewer rationale plus answer support, citation, and completeness judgments;
+- per-language and per-category Precision@K, Recall@K, MRR, and answer-accuracy reporting;
+- reproducible 95% bootstrap confidence intervals with a fixed versioned seed;
+- explicit segmented thresholds that can fail Persian or mixed-language CI independently of aggregate metrics;
+- credential-free deterministic CI and retained machine-readable reports;
+- documentation that limits claims to the reviewed synthetic corpus.
+
+Remaining evaluation work:
+
+- larger independently reviewed corpora and inter-annotator agreement;
+- production-scale and statistically representative sampling where a real product population exists;
+- approved opt-in external-provider comparison using non-sensitive data;
+- provider-specific factual-accuracy, token/cost, and latency comparison;
+- richer OCR/layout-derived multilingual cases once those processing paths exist.
 
 ## Explicitly Deferred
 
