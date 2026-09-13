@@ -37,6 +37,7 @@ EXPECTED_IMAGES = {
 }
 
 EXPECTED_HTTP_SERVER_METRIC = "http_server_request_duration_seconds"
+EXPECTED_METRIC_EXPORT_INTERVAL = "OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-5000}"
 
 FORBIDDEN_METRIC_LABEL_TERMS = {
     "tenant_id",
@@ -122,6 +123,8 @@ def main() -> None:
             raise SystemExit(f"Observability image is not pinned as expected: {image}")
     if ":latest" in compose_text:
         raise SystemExit("Observability Compose file must not use latest image tags")
+    if compose_text.count(EXPECTED_METRIC_EXPORT_INTERVAL) < 2:
+        raise SystemExit("API and Worker must use the bounded observability metric export cadence")
 
     metrics_and_dashboard = f"{alerts_text}\n{dashboard_text}".lower()
     for forbidden in FORBIDDEN_METRIC_LABEL_TERMS:

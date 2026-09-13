@@ -104,7 +104,7 @@ jobs:
             curl --fail --silent http://localhost:5000/health > /dev/null
           done
 
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 45); do
             curl --fail --silent --get \
               --data-urlencode 'query=http_server_request_duration_seconds_count' \
               http://localhost:9090/api/v1/query > /tmp/prometheus-query.json
@@ -122,7 +122,7 @@ jobs:
               break
             fi
 
-            if [ "$attempt" = "30" ]; then
+            if [ "$attempt" = "45" ]; then
               echo "Expected ASP.NET Core server duration metric did not reach Prometheus"
               cat /tmp/prometheus-query.json
               exit 1

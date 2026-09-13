@@ -2,6 +2,7 @@ services:
   document-api:
     environment:
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-5000}
     depends_on:
       otel-collector:
         condition: service_started
@@ -9,6 +10,7 @@ services:
   document-worker:
     environment:
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-5000}
     depends_on:
       otel-collector:
         condition: service_started
