@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+### Added
+
+- Reviewed English, Persian, and mixed-language retrieval/answer datasets with versioned reviewer rationale and support/citation/completeness judgments.
+- Segmented per-language and per-category Precision@K, Recall@K, MRR, and answer-accuracy reporting.
+- Deterministic 95% bootstrap confidence intervals using a versioned fixed seed and iteration count.
+- CI-enforced Persian and mixed-language regression gates plus retained multilingual machine-readable reports.
+
+### Changed
+
+- Quality documentation now distinguishes the reviewed synthetic multilingual suite from unsupported production-scale or population-representative accuracy claims.
+
 ## 0.4.0 - 2026-09-13
 
 ### Added
