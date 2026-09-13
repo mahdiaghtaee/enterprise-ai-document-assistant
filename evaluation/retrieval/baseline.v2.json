@@ -2,15 +2,15 @@
   "datasetVersion": "2.0.0",
   "topK": 3,
   "observed": {
-    "precisionAtK": 0.05,
-    "recallAtK": 0.15,
-    "meanReciprocalRank": 0.15,
+    "precisionAtK": 0.35185185185185186,
+    "recallAtK": 0.7222222222222222,
+    "meanReciprocalRank": 0.6944444444444444,
     "emptyQueryAccuracy": 1
   },
   "thresholds": {
-    "minimumPrecisionAtK": 0.05,
-    "minimumRecallAtK": 0.15,
-    "minimumMeanReciprocalRank": 0.15,
+    "minimumPrecisionAtK": 0.32,
+    "minimumRecallAtK": 0.65,
+    "minimumMeanReciprocalRank": 0.6,
     "minimumEmptyQueryAccuracy": 1,
     "maximumMeanLatencyMs": 250
   }
