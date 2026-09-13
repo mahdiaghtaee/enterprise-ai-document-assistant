@@ -1,0 +1,472 @@
+{
+  "version": "2.0.0",
+  "topK": 3,
+  "tenantId": "multilingual-evaluation-tenant",
+  "ownerId": "multilingual-evaluation-user",
+  "documents": [
+    {
+      "documentId": "00000000-0000-0000-0000-000000000001",
+      "fileName": "en-exact.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Vendor contract approval process requires Finance Director sign-off."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000002",
+      "fileName": "en-vocab.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Database backup restore procedure uses the latest verified snapshot."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000003",
+      "fileName": "en-amb-1.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Manager approval policy applies to travel expense requests."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000004",
+      "fileName": "en-amb-2.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Manager approval policy applies to remote work requests."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000005",
+      "fileName": "en-dup-1.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Security policy requires multi factor authentication for administrators."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000006",
+      "fileName": "en-dup-2.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Security policy requires multi factor authentication for administrators."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000007",
+      "fileName": "en-long.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Quarterly continuity review: restore verification must confirm application integrity after recovery. This section also documents ownership, review cadence, escalation contacts, and test evidence."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000008",
+      "fileName": "en-format.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "PDF table row: retention period | 90 days | owner | compliance."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000009",
+      "fileName": "fa-exact.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "فرایند تایید قرارداد فروشنده نیازمند تایید مدیر مالی است."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-00000000000a",
+      "fileName": "fa-vocab.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "رویه بازیابی پشتیبان پایگاه داده از آخرین نسخه تاییدشده استفاده می‌کند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-00000000000b",
+      "fileName": "fa-amb-1.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "سیاست تایید مدیر برای درخواست هزینه سفر اعمال می‌شود."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-00000000000c",
+      "fileName": "fa-amb-2.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "سیاست تایید مدیر برای درخواست دورکاری اعمال می‌شود."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-00000000000d",
+      "fileName": "fa-dup-1.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "سیاست امنیتی برای مدیران احراز هویت چندمرحله‌ای را الزامی می‌کند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-00000000000e",
+      "fileName": "fa-dup-2.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "سیاست امنیتی برای مدیران احراز هویت چندمرحله‌ای را الزامی می‌کند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-00000000000f",
+      "fileName": "fa-long.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "بازبینی تداوم خدمت باید پس از بازیابی، صحت برنامه را تایید کند. این بخش همچنین مالکیت، دوره بازبینی، مسیر ارجاع و شواهد آزمون را مستند می‌کند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000010",
+      "fileName": "fa-format.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "ردیف جدول PDF: دوره نگهداری | ۹۰ روز | مسئول | تطبیق."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000011",
+      "fileName": "mixed-exact.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Access policy: کاربران Admin باید MFA را قبل از ورود فعال کنند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000012",
+      "fileName": "mixed-vocab.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Backup policy می‌گوید restore فقط از verified snapshot انجام شود."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000013",
+      "fileName": "mixed-amb-1.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Manager approval برای expense request و remote work الزامی است."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000014",
+      "fileName": "mixed-amb-2.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Manager approval برای travel expense نیز الزامی است."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000015",
+      "fileName": "mixed-dup-1.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Security policy: کاربران privileged باید MFA فعال داشته باشند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000016",
+      "fileName": "mixed-dup-2.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Security policy: کاربران privileged باید MFA فعال داشته باشند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000017",
+      "fileName": "mixed-long.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "Continuity review: بعد از restore باید application integrity تایید شود. این section همچنین owner، review cadence و test evidence را مستند می‌کند."
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-0000-0000-000000000018",
+      "fileName": "mixed-format.txt",
+      "chunks": [
+        {
+          "chunkIndex": 0,
+          "text": "PDF table: retention period | 90 روز | owner | compliance."
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "id": "en-exact-retrieval",
+      "category": "exact_retrieval",
+      "query": "Vendor contract approval process requires Finance Director sign-off.",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000001",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "en-vocabulary-mismatch",
+      "category": "vocabulary_mismatch",
+      "query": "backup restore procedure verified snapshot",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000002",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "en-ambiguity",
+      "category": "ambiguity",
+      "query": "manager approval policy",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000003",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000000004",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "en-duplicates",
+      "category": "duplicates",
+      "query": "Security policy requires multi factor authentication for administrators.",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000005",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000000006",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "en-long-document-context",
+      "category": "long_document_context",
+      "query": "restore verification confirm application integrity",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000007",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "en-format-derived",
+      "category": "format_derived",
+      "query": "retention period 90 days compliance",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000008",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "fa-exact-retrieval",
+      "category": "exact_retrieval",
+      "query": "فرایند تایید قرارداد فروشنده نیازمند تایید مدیر مالی است.",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000009",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "fa-vocabulary-mismatch",
+      "category": "vocabulary_mismatch",
+      "query": "بازیابی پشتیبان نسخه تاییدشده",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-00000000000a",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "fa-ambiguity",
+      "category": "ambiguity",
+      "query": "سیاست تایید مدیر",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-00000000000b",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-00000000000c",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "fa-duplicates",
+      "category": "duplicates",
+      "query": "سیاست امنیتی برای مدیران احراز هویت چندمرحله‌ای را الزامی می‌کند.",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-00000000000d",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-00000000000e",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "fa-long-document-context",
+      "category": "long_document_context",
+      "query": "بازیابی صحت برنامه را تایید کند",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-00000000000f",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "fa-format-derived",
+      "category": "format_derived",
+      "query": "دوره نگهداری ۹۰ روز تطبیق",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000010",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mixed-exact-retrieval",
+      "category": "exact_retrieval",
+      "query": "Access policy: کاربران Admin باید MFA را قبل از ورود فعال کنند.",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000011",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mixed-vocabulary-mismatch",
+      "category": "vocabulary_mismatch",
+      "query": "restore verified snapshot پشتیبان",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000012",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mixed-ambiguity",
+      "category": "ambiguity",
+      "query": "Manager approval الزامی",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000013",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000000014",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mixed-duplicates",
+      "category": "duplicates",
+      "query": "Security policy: کاربران privileged باید MFA فعال داشته باشند.",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000015",
+          "chunkIndex": 0
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000000016",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mixed-long-document-context",
+      "category": "long_document_context",
+      "query": "بعد از restore application integrity تایید",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000017",
+          "chunkIndex": 0
+        }
+      ]
+    },
+    {
+      "id": "mixed-format-derived",
+      "category": "format_derived",
+      "query": "retention period 90 روز compliance",
+      "relevant": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000018",
+          "chunkIndex": 0
+        }
+      ]
+    }
+  ]
+}
