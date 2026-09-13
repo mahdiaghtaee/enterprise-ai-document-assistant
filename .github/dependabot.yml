@@ -29,6 +29,13 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    allow:
+      - dependency-name: "Microsoft.AspNetCore.Mvc.Testing"
+      - dependency-name: "Microsoft.NET.Test.Sdk"
+      - dependency-name: "coverlet.collector"
+      - dependency-name: "System.Text.Json"
+      - dependency-name: "xunit"
+      - dependency-name: "xunit.runner.visualstudio"
     groups:
       test-nuget-minor-patch:
         patterns:
@@ -43,11 +50,10 @@ updates:
       interval: monthly
     open-pull-requests-limit: 5
     groups:
-      python-minor-patch:
+      python-patch:
         patterns:
           - "*"
         update-types:
-          - minor
           - patch
 
   - package-ecosystem: docker
