@@ -9,6 +9,8 @@
 [![Safe document formats](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/document-formats.yml/badge.svg)](https://github.com/mahdiaghtaee/enterprise-ai-document-assistant/actions/workflows/document-formats.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> **Project status:** Maintenance mode. The v0.5.x line is the completed reference milestone. New feature development is paused while the repository remains available for review, security fixes, compatibility maintenance, and documented resumption work. See [Project Status](docs/PROJECT_STATUS.md).
+
 A local-first reference implementation for managed tenant document ingestion, durable background processing, persistent semantic retrieval, provider-optional grounded answers, tamper-evident audit operations, and reproducible quality evaluation.
 
 The repository combines **ASP.NET Core**, **Python FastAPI**, **PostgreSQL with pgvector**, **Redis**, a small Web UI, and **Docker Compose**. The default pipeline is deterministic and runs without paid AI credentials, a malware-scanning service, audit-retention deletion, or a telemetry collector. The public API and privileged ingestion worker run as separate services with different database identities.
