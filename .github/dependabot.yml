@@ -75,6 +75,9 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      - dependency-name: "fastapi"
+        update-types:
+          - version-update:semver-minor
 
   - package-ecosystem: docker
     directory: /src/api-dotnet

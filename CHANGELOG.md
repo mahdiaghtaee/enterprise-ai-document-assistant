@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+### Changed
+
+- Python OpenTelemetry packages are serviced as a coordinated compatible family at API/SDK/exporter 1.45.0 and FastAPI instrumentation 0.66b0.
+- FastAPI pre-1.0 minor upgrades are deferred from routine Dependabot servicing and tracked explicitly in issue #125.
+
 ## 0.5.0 - 2026-10-03
 
 ### Added
