@@ -60,3 +60,17 @@ def test_index_endpoint_validates_required_file_name() -> None:
 
     assert response.status_code == 422
     assert response.headers[CORRELATION_HEADER]
+    detail = response.json()["detail"]
+    assert any(
+        error["type"] == "missing" and error["loc"] == ["body", "file_name"] for error in detail
+    )
+
+
+def test_openapi_schema_preserves_service_contract() -> None:
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+    assert schema["info"]["title"] == "Enterprise Document AI Service"
+    assert "/health" in schema["paths"]
+    assert "/index" in schema["paths"]

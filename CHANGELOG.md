@@ -8,8 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- FastAPI is deliberately upgraded from 0.115.6 to 0.142.1 after compatibility validation of request validation, OpenAPI generation, TestClient behavior, Docker/Compose health checks, and the current Python OpenTelemetry 1.45.0 / instrumentation 0.66b0 family.
 - Python OpenTelemetry packages are serviced as a coordinated compatible family at API/SDK/exporter 1.45.0 and FastAPI instrumentation 0.66b0.
-- FastAPI pre-1.0 minor upgrades are deferred from routine Dependabot servicing and tracked explicitly in issue #125.
+- Future FastAPI pre-1.0 minor upgrades remain explicit compatibility reviews rather than routine unattended servicing.
 
 ## 0.5.0 - 2026-10-03
 
