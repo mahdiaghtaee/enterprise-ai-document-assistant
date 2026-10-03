@@ -6,11 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## Unreleased
 
+No active feature work is planned. The repository is in maintenance mode; future changes should be security, compatibility, documentation, or explicitly reopened roadmap work.
+
+## 0.5.1 - 2026-10-03
+
 ### Changed
 
 - FastAPI is deliberately upgraded from 0.115.6 to 0.142.1 after compatibility validation of request validation, OpenAPI generation, TestClient behavior, Docker/Compose health checks, and the current Python OpenTelemetry 1.45.0 / instrumentation 0.66b0 family.
 - Python OpenTelemetry packages are serviced as a coordinated compatible family at API/SDK/exporter 1.45.0 and FastAPI instrumentation 0.66b0.
-- Future FastAPI pre-1.0 minor upgrades remain explicit compatibility reviews rather than routine unattended servicing.
+- The repository enters maintenance mode after the v0.5.x reference milestone; major runtime migrations and new product capabilities are deferred until the project is intentionally resumed.
+
+### Added
+
+- FastAPI compatibility contract tests covering validation and OpenAPI schema behavior.
+- A documented FastAPI compatibility and rollback procedure.
+- A project-status document that records the maintenance boundary and deferred work.
 
 ## 0.5.0 - 2026-10-03
 
