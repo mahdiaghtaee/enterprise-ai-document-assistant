@@ -1,0 +1,32 @@
+name: Publish v0.5.1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docs/releases/v0.5.1.md
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Publish v0.5.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.5.1 >/dev/null 2>&1; then
+            echo "v0.5.1 already exists"
+            exit 0
+          fi
+          gh release create v0.5.1 \
+            --target "$GITHUB_SHA" \
+            --title "v0.5.1 — FastAPI compatibility and maintenance handoff" \
+            --notes-file docs/releases/v0.5.1.md
