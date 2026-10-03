@@ -62,8 +62,7 @@ def test_index_endpoint_validates_required_file_name() -> None:
     assert response.headers[CORRELATION_HEADER]
     detail = response.json()["detail"]
     assert any(
-        error["type"] == "missing" and error["loc"] == ["body", "file_name"]
-        for error in detail
+        error["type"] == "missing" and error["loc"] == ["body", "file_name"] for error in detail
     )
 
 
