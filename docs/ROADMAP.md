@@ -6,6 +6,7 @@ This roadmap separates completed capabilities from planned work. A milestone is 
 
 - split Docker Compose environment for the public API, privileged worker, Web UI, FastAPI service, PostgreSQL, and Redis
 - ASP.NET Core and FastAPI health endpoints
+- FastAPI 0.142.x compatibility validated with the current Pydantic/OpenTelemetry stack, request validation, OpenAPI generation, and container health checks
 - local shared document storage
 - PostgreSQL-backed document metadata
 - bounded TXT, text-bearing PDF, and DOCX extraction with safe upload gates
