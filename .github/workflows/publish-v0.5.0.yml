@@ -1,0 +1,33 @@
+name: Publish v0.5.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-v0.5.0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish v0.5.0
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Publish fixed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.5.0 >/dev/null 2>&1; then
+            echo "v0.5.0 already exists; nothing to publish."
+            exit 0
+          fi
+
+          gh release create v0.5.0 \
+            --target "$GITHUB_SHA" \
+            --title "v0.5.0 — Multilingual quality gates and dependency maintenance" \
+            --notes-file docs/releases/v0.5.0.md
