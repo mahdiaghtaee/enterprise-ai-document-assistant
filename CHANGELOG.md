@@ -20,6 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Quality documentation now distinguishes the reviewed synthetic multilingual suite from unsupported production-scale or population-representative accuracy claims.
 - Python runtime servicing updates Uvicorn to 0.54.0 and the Ruff development tool to 0.16.9.
 - ASP.NET Core OpenTelemetry packages move to the validated 1.19.x line while the application remains on .NET 8.
+- .NET test dependencies were refreshed within the existing major-version policy, including ASP.NET Core testing, Test SDK, coverlet, and xUnit packages.
+- Dependabot now excludes semantic-major NuGet/Python updates from routine servicing and coordinates Python OpenTelemetry package updates as a group.
 
 ## 0.4.0 - 2026-09-13
 
