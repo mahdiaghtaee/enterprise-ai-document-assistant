@@ -358,7 +358,7 @@ CI verifies:
 - The OpenAI-compatible path validates protocol and grounding controls without calling or endorsing a real provider.
 - Docker Compose uses development defaults and exposes local infrastructure ports.
 
-The next engineering priority is a **larger reviewed multilingual retrieval/answer evaluation corpus and one approved non-sensitive provider comparison**, followed by production identity/secret integration and reviewed OCR/advanced document-processing work.
+If the project is intentionally resumed, the next candidate work is a **larger reviewed multilingual retrieval/answer evaluation corpus and one approved non-sensitive provider comparison**, followed by production identity/secret integration and reviewed OCR/advanced document-processing work.
 
 ## Repository Structure
 
@@ -379,7 +379,7 @@ The next engineering priority is a **larger reviewed multilingual retrieval/answ
 
 ## Contributing
 
-Focused contributions are welcome for representative multilingual evaluation corpora, approved provider comparisons, identity-provider synchronization, tenant governance, external immutable audit anchoring, production telemetry operations, OCR/document-layout processing, and production malware operations.
+Maintenance fixes, compatibility improvements, test/reproducibility fixes, and documentation corrections remain welcome. Larger feature work should start with an issue and an explicit decision to resume the project rather than extending the maintenance branch implicitly.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report security-sensitive findings through [SECURITY.md](SECURITY.md).
 
